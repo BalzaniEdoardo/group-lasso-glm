@@ -19,6 +19,8 @@ spikes = data.spikes
 position = data.position
 wake_ep = data.epochs["wake"]
 
+# spikes = spikes[[0,6]]
+
 # COMPUTING TUNING CURVES
 tuning_curves = nap.compute_1d_tuning_curves(
     spikes, position["ry"], 120, minmax=(0, 2 * np.pi)
@@ -27,7 +29,7 @@ peaks = tuning_curves.idxmax()
 #####################################################################
 # Parameters
 #####################################################################
-bin_size = 0.3
+bin_size = 0.02
 ws = 100
 nb = 5
 
@@ -50,11 +52,14 @@ B = spike_basis.gen_basis_funcs(sim_pts)
 glm = GLM(
     B, 
     solver_name="GradientDescent", 
-    solver_kwargs=dict(maxiter=1000, acceleration=False, verbose=True, stepsize=0.0)
+    solver_kwargs=dict(maxiter=3000, acceleration=False, verbose=True, stepsize=0.0)
     )
 
 
 glm.fit(spike_data)
+
+sys.exit()
+
 pred = glm.predict(spike_data)
 
 #####################################################################
