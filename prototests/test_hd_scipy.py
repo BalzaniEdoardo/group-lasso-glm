@@ -1,3 +1,8 @@
+# -*- coding: utf-8 -*-
+# @Author: Guillaume Viejo
+# @Date:   2023-05-17 14:47:47
+# @Last Modified by:   Guillaume Viejo
+# @Last Modified time: 2023-05-17 18:57:42
 import jax
 import jax.numpy as jnp
 import numpy as onp
@@ -11,6 +16,7 @@ import sys
 import jax.numpy as jnp
 from functools import partial
 import jaxopt
+from scipy.optimize import minimize
 
 jax.config.update("jax_platform_name", "cpu")
 jax.config.update("jax_enable_x64", True)
@@ -32,15 +38,15 @@ tuning_curves = nap.compute_1d_tuning_curves(
     spikes, position["ry"], 120, minmax=(0, 2 * np.pi)
 )
 peaks = tuning_curves.idxmax()
+
 #####################################################################
 # Parameters
 #####################################################################
-bin_size = 0.002
+bin_size = 0.005
 ws = 200
 nb = 3
 
-
-count = spikes[[0, 6]].count(bin_size, wake_ep)
+count = spikes.count(bin_size, wake_ep)
 order = peaks[count.columns].sort_values().index
 count = count[order]
 spike_data = jnp.array(count.values.T)
@@ -48,10 +54,13 @@ n_neurons = spike_data.shape[0]
 
 # Getting the spike basis function
 spike_basis = RaisedCosineBasis(n_basis_funcs=nb,window_size=ws)
-sim_pts = nsl.sample_points.raised_cosine_log(nb, ws)
+sim_pts = nsl.sample_points.raised_cosine_linear(nb, ws)
 B = spike_basis.gen_basis_funcs(sim_pts)
 
-B = B[::-1]
+# B = B[::-1]
+
+# B = B[1][None,:]
+
 
 #####################################################################
 # Fitting the GLM
@@ -67,48 +76,83 @@ n_basis_funcs, window_size = spike_basis.shape
 # next time bin
 # Broadcasted 1d convolution operations.
 # [[n x t],[w]] -> [n x (t - w + 1)]
-_CORR1 = jax.vmap(partial(jnp.convolve, mode='valid'), (0, None), 0)
+_CORR1 = jax.vmap(partial(jnp.convolve, mode='same'), (0, None), 0)
 # [[n x t],[p x w]] -> [n x p x (t - w + 1)]
 _CORR2 = jax.vmap(_CORR1, (None, 0), 0)
 
 X = _CORR2(jnp.atleast_2d(spike_basis),jnp.atleast_2d(spike_data))
+# X = X[:,:,:-1]
+X = np.array(X)
+X = X.reshape(np.prod(X.shape[0:2]), X.shape[-1])
+X = X.T
+X = X - X.mean(0)
+X = X / X.std(0)
 
-X = X[:,:,:-1]
+
+
+Y = np.array(spike_data).T
+# Y = Y[0:X.shape[0]]
+y = Y[:,0]
 
 # Initial parameters
-init_params = (jnp.zeros((n_neurons, n_basis_funcs, n_neurons)),jnp.zeros(n_neurons))
+b0 = np.zeros((n_neurons, n_basis_funcs, n_neurons))
+# b0 = b0.flatten()
 
-# Loss functions
-def score(predicted_firing_rates, target_spikes):
-    x = target_spikes * jnp.log(predicted_firing_rates)
-    # this is a jax jit-friendly version of saying "put a 0 wherever
-    # there's a NaN". we do this because NaNs result from 0*log(0)
-    # (log(0)=-inf and any non-zero multiplied by -inf gives the expected
-    # +/- inf)
-    x = jnp.where(jnp.isnan(x), jnp.zeros_like(x), x)
-    # see above for derivation of this.
-    return jnp.mean(predicted_firing_rates - x + 0.0*jax.scipy.special.gammaln(target_spikes+1))
 
-def loss(params, X, y):
-    Ws, bs = params
-    predicted_firing_rates = jax.nn.softplus(
-        jnp.einsum("nbt,nbj->nt", X, Ws) + bs[:, None]
-    )
-    return score(predicted_firing_rates, y)
+# # loss function and gradient
+# def loss(b):
+#     Xb = np.dot(X, b)
+#     exp_Xb = np.exp(Xb)
+#     loss = exp_Xb.sum() - np.dot(y, Xb)
+#     grad = np.dot(X.T, exp_Xb - y)
+#     return loss, grad
+
+# # hessian
+# def hess(b):
+#     return np.dot(X.T, np.exp(np.dot(X, b))[:, None]*X)
+
+
+
+def loss2(b):
+    tmp = b.reshape((n_neurons, n_basis_funcs, n_neurons))
+    for i in range(len(tmp)):
+        tmp[i,:,i] = 0.0
+    tmp = tmp.reshape((n_neurons*n_basis_funcs, n_neurons))
+    Xb = np.dot(X, tmp)
+    exp_Xb = np.exp(Xb)
+
+    loss = np.sum(exp_Xb, 0) - np.sum(Y*Xb, 0)
+
+    grad = np.dot(X.T, exp_Xb - Y)
+    grad = grad.reshape((n_neurons, n_basis_funcs, n_neurons))
+    for i in range(len(grad)):
+        grad[i,:,i] = 0.0
+
+    return np.mean(loss), grad.flatten()
+
+def hess2(b):
+    tmp = b.reshape((n_neurons*n_basis_funcs, n_neurons))
+    Xb = np.dot(X, tmp)
+    exp_Xb = np.exp(Xb)
+    tmp2 = np.zeros((b.shape[0], b.shape[0]))
+
+    n = n_neurons*n_basis_funcs
+    for i in range(n_neurons):
+        tmp2[i*n:i*n+n,i*n:i*n+n] = np.dot(X.T, exp_Xb[:,i][:, None]*X)
+
+    return tmp2
+
 
 
 # Run optimization
-solver = jaxopt.GradientDescent(
-    fun=loss, maxiter=1000, acceleration=False, verbose=True, stepsize=0.0
-    )
+# result = minimize(loss, b0[:,0], jac=True, hess=hess, method='newton-cg')
 
-params, state = solver.run(init_params, X=X,
-                           y=spike_data[:,:-ws])
+result = minimize(loss2, b0.flatten(), jac=True, method='newton-cg')
 
 
-W, w0 = params
+x = result.x.reshape((n_neurons, n_basis_funcs, n_neurons))
 
-# sys.exit()
+sys.exit()
 
 
 
