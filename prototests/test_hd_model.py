@@ -1,13 +1,20 @@
-import jax
-import jax.numpy as jnp
-import numpy as onp
+# -*- coding: utf-8 -*-
+# @Author: Guillaume Viejo
+# @Date:   2023-05-19 13:29:18
+# @Last Modified by:   Guillaume Viejo
+# @Last Modified time: 2023-05-23 15:43:03
+import numpy as np
+from scipy.optimize import minimize
+from matplotlib.pyplot import *
+from sklearn.manifold import Isomap
+from scipy.ndimage import gaussian_filter1d
+
 import neurostatslib as nsl
 from neurostatslib.glm import GLM
 from neurostatslib.basis import RaisedCosineBasis, MSplineBasis
-import matplotlib
-from matplotlib.pyplot import *
-import pynapple as nap
-import sys
+
+# Jax import ##########################
+import jax
 import jax.numpy as jnp
 from functools import partial
 import jaxopt
@@ -16,43 +23,47 @@ jax.config.update("jax_platform_name", "cpu")
 jax.config.update("jax_enable_x64", True)
 
 
-# pynapple data
-data = nap.load_session("/mnt/home/gviejo/pynapple/your/path/to/A2929-200711", "neurosuite")
-
-# data = nap.load_session("/Users/gviejo/pynapple/your/path/to/A2929-200711", "neurosuite")
+#######################################
 
 
+T = 20000   # number of datapoints
+N = 12
 
-spikes = data.spikes.getby_category("location")["adn"]
-position = data.position
-wake_ep = data.epochs["wake"]
 
-# COMPUTING TUNING CURVES
-tuning_curves = nap.compute_1d_tuning_curves(
-    spikes, position["ry"], 120, minmax=(0, 2 * np.pi)
-)
-peaks = tuning_curves.idxmax()
-#####################################################################
-# Parameters
-#####################################################################
-bin_size = 0.01
+bins = np.linspace(0, 2*np.pi, 121)
+
+alpha = np.digitize(
+    gaussian_filter1d(np.cumsum(np.random.randn(T)*0.5), 2)
+    %(2*np.pi), bins
+    )-1
+
+
+x = np.linspace(-np.pi, np.pi, len(bins)-1)
+tmp = np.roll(np.exp(-(2*x)**2), (len(bins)-1)//2)
+tc = np.array([np.roll(tmp, i*(len(bins)-1)//N) for i in range(N)]).T
+
+# np.random.shuffle(tc)
+
+
+Y = np.random.poisson(tc[alpha]*1.5)
+
+spike_data = Y.T
+
+# imap = Isomap(n_components=2, n_neighbors = 10).fit_transform(Y)
+
+#######################################
+# Getting the spike basis function
 ws = 100
 nb = 8
 
-
-count = spikes.count(bin_size, wake_ep)
-order = peaks[count.columns].sort_values().index
-count = count[order]
-Y = count.values
-spike_data = jnp.array(count.values.T)
-n_neurons = spike_data.shape[0]
-
-# Getting the spike basis function
 spike_basis = RaisedCosineBasis(n_basis_funcs=nb,window_size=ws)
 sim_pts = nsl.sample_points.raised_cosine_linear(nb, ws)
 B = spike_basis.gen_basis_funcs(sim_pts)
 
+# B = B[1:]
+
 # B = B[::-1]
+
 
 #####################################################################
 # Fitting the GLM
@@ -93,7 +104,7 @@ def loss(b, X, Y):
     # return jnp.mean(loss) + 0.1*jnp.sum(jnp.sqrt(jnp.maximum(0, jnp.sum(b**2.0, 1))))
 
 
-# sys.exit()
+
 
 solver = jaxopt.GradientDescent(
     fun=loss, maxiter=20000, acceleration=False, verbose=True, stepsize=0.0
@@ -107,7 +118,7 @@ W2 = W[0:-1].reshape((n_neurons, n_basis_funcs, n_neurons))
 figure()
 gs = GridSpec(3, len(B))
 subplot(gs[0,0:2])
-imshow(tuning_curves[order],aspect='auto')
+imshow(tc,aspect='auto')
 subplot(gs[0,2:4])
 imshow(W2.mean(1), aspect='auto')
 
@@ -120,27 +131,26 @@ for i in range(n_basis_funcs):
 
 colorbar(im)
 
+##############################################
+# TEST
+##############################################
+alpha2 = np.digitize(np.cumsum(np.random.randn(2000)*0.5)%(2*np.pi), bins)-1
+Yt = np.random.poisson(tc[alpha2]*1.5)
+Xt = _CORR2(jnp.atleast_2d(spike_basis),jnp.atleast_2d(Yt.T))
+Xt = Xt.reshape(np.prod(Xt.shape[0:2]), Xt.shape[-1])
+Xt = Xt.T
+Xt = Xt - Xt.mean(0)
+Xt = Xt / Xt.std(0)
+Xt = np.hstack((Xt, jnp.ones((len(Xt), 1))))
+Yp = jnp.exp(jnp.dot(Xt, W))
 
-# ##############################################
-# # TEST
-# ##############################################
-# alpha2 = np.digitize(np.cumsum(np.random.randn(2000)*0.5)%(2*np.pi), bins)-1
-# Yt = np.random.poisson(tc[alpha2]*1.5)
-# Xt = _CORR2(jnp.atleast_2d(spike_basis),jnp.atleast_2d(Yt.T))
-# Xt = Xt.reshape(np.prod(Xt.shape[0:2]), Xt.shape[-1])
-# Xt = Xt.T
-# Xt = Xt - Xt.mean(0)
-# Xt = Xt / Xt.std(0)
-# Xt = np.hstack((Xt, jnp.ones((len(Xt), 1))))
-# Yp = jnp.exp(jnp.dot(Xt, W))
 
-
-# figure()
-# subplot(311)
-# imshow(Yt.T, aspect='auto')
-# subplot(312)
-# imshow(Yp.T, aspect='auto')
-# subplot(313)
-# plot(Yt[:,0])
-# plot(Yp[:,0])
-# show()
+figure()
+subplot(311)
+imshow(Yt.T, aspect='auto')
+subplot(312)
+imshow(Yp.T, aspect='auto')
+subplot(313)
+plot(Yt[:,0])
+plot(Yp[:,0])
+show()
