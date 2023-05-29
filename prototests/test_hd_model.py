@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 # @Author: Guillaume Viejo
 # @Date:   2023-05-19 13:29:18
-# @Last Modified by:   Guillaume Viejo
-# @Last Modified time: 2023-05-23 15:43:03
+# @Last Modified by:   gviejo
+# @Last Modified time: 2023-05-28 22:53:30
 import numpy as np
 from scipy.optimize import minimize
 from matplotlib.pyplot import *
@@ -26,26 +26,23 @@ jax.config.update("jax_enable_x64", True)
 #######################################
 
 
-T = 20000   # number of datapoints
+T = 5000   # number of datapoints
 N = 12
 
 
 bins = np.linspace(0, 2*np.pi, 121)
 
 alpha = np.digitize(
-    gaussian_filter1d(np.cumsum(np.random.randn(T)*0.5), 2)
+    gaussian_filter1d(np.cumsum(np.random.randn(T)*0.5), 3)
     %(2*np.pi), bins
     )-1
 
 
 x = np.linspace(-np.pi, np.pi, len(bins)-1)
-tmp = np.roll(np.exp(-(2*x)**2), (len(bins)-1)//2)
+tmp = np.roll(np.exp(-(1*x)**2), (len(bins)-1)//2)
 tc = np.array([np.roll(tmp, i*(len(bins)-1)//N) for i in range(N)]).T
 
-# np.random.shuffle(tc)
-
-
-Y = np.random.poisson(tc[alpha]*1.5)
+Y = np.random.poisson(tc[alpha]*3)
 
 spike_data = Y.T
 
