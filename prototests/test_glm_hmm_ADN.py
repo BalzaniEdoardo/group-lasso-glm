@@ -2,15 +2,14 @@
 # @Author: Guillaume Viejo
 # @Date:   2023-05-19 13:29:18
 # @Last Modified by:   Guillaume Viejo
-# @Last Modified time: 2023-05-30 14:26:07
+# @Last Modified time: 2023-05-30 15:20:25
 import numpy as np
 from scipy.optimize import minimize
 from matplotlib.pyplot import *
 from sklearn.manifold import Isomap
 from sklearn.decomposition import KernelPCA
 from scipy.ndimage import gaussian_filter1d
-from scipy.stats import poisson
-
+import pynapple as nap
 import neurostatslib as nsl
 from neurostatslib.glm import GLM
 from neurostatslib.basis import RaisedCosineBasis, MSplineBasis
@@ -26,32 +25,70 @@ jax.config.update("jax_enable_x64", True)
 #######################################
 
 
-T = 5000 # number of data/time points
+# pynapple data
+# data = nap.load_session("/mnt/home/gviejo/pynapple/your/path/to/A2929-200711", "neurosuite")
+data = nap.load_session("/mnt/ceph/users/gviejo/ADN/Mouse32/Mouse32-140822", "neurosuite")
+# data = nap.load_session("/mnt/ceph/users/gviejo/LMN-ADN/A5011/A5011-201014A", "neurosuite")
+
+
+# data = nap.load_session("/Users/gviejo/pynapple/your/path/to/A2929-200711", "neurosuite")
+
+
+
+spikes = data.spikes.getby_category("location")["adn"]
+position = data.position
+wake_ep = data.epochs["wake"].loc[[0]]
+
+# COMPUTING TUNING CURVES
+tuning_curves = nap.compute_1d_tuning_curves(
+    spikes, position["ry"], 120, minmax=(0, 2 * np.pi)
+)
+SI = nap.compute_1d_mutual_info(tuning_curves,
+    position['ry'], 
+    position['ry'].time_support.loc[[0]], minmax=(0,2*np.pi))
+spikes.set_info(SI)
+spikes.set_info(peak=tuning_curves.max())
+peaks = tuning_curves.idxmax()
+spikes = spikes.getby_threshold("SI", 1.0).getby_threshold("rate", 1.0).getby_threshold("peak", 1.0)
+
+# for i, n in enumerate(spikes.keys()):
+#     subplot(6,6,i+1, projection='polar')
+#     plot(tuning_curves[n])
+
+
+#####################################################################
+# Parameters
+#####################################################################
+bin_size = 0.1
+
+
+count = spikes.count(bin_size, wake_ep)
+order = peaks[count.columns].sort_values().index
+count = count[order]
+tc = tuning_curves[order].values
+Y = count.values
+spike_data = jnp.array(count.values.T)
+
+N = spike_data.shape[0]
 K = 2 # number of latent states
-N = 12 # Number of neurons
+T = len(Y)
 
-#######################################
-# Generate the data
-#######################################
-bins = np.linspace(0, 2*np.pi, 121)
-alpha = np.digitize(
-    gaussian_filter1d(np.cumsum(np.random.randn(T)*0.5), 2)
-    %(2*np.pi), bins
-    )-1
-x = np.linspace(-np.pi, np.pi, len(bins)-1)
-tmp = np.roll(np.exp(-(2.0*x)**2), (len(bins)-1)//2)
-tc = np.array([np.roll(tmp, i*(len(bins)-1)//N) for i in range(N)]).T
-Y = np.random.poisson(tc[alpha]*5)
+Yr = nap.randomize.shuffle_ts_intervals(spikes.restrict(wake_ep)).count(bin_size, wake_ep)[order]
+Yr = Yr.values
 
 
-tcr = np.random.rand(120, N)*np.mean(Y.sum(0)/T)
-Yr = np.random.poisson(tcr[alpha]*2)
+figure()
+ax = subplot(211)
+imshow(Y.T, aspect='auto', cmap='jet')
+subplot(212, sharex=ax)
+plot(position['ry'].bin_average(bin_size, wake_ep))
+# show()
 
 #######################################
 # Getting the spike basis function
 #######################################
-ws = 50
-nb = 4
+ws = 30
+nb = 3
 
 spike_basis = RaisedCosineBasis(n_basis_funcs=nb,window_size=ws)
 sim_pts = nsl.sample_points.raised_cosine_linear(nb, ws)
@@ -106,8 +143,8 @@ for spike_data in [Y.T, Yr.T]:
 # MIXING THE SPIKE DATA
 ############################################
 init = np.array([0.5, 0.5])
-trueA = np.array([[0.95, 0.05],[0.05, 0.95]])
-# trueA = np.array([[0.6, 0.4],[0.4, 0.6]])
+trueA = np.array([[0.97, 0.03],[0.03, 0.97]])
+# trueA = np.array([[0.7, 0.3],[0.3, 0.7]])
 Z = np.zeros(T*2, dtype='int')
 m, n = (1, 0)
 Yt = [Y[0]]
@@ -147,7 +184,6 @@ X = X - X.mean(0)
 X = X / X.std(0)
 X = np.hstack((X, jnp.ones((len(X), 1))))
 
-
 O = []
 for i in range(len(Ws)):    
     p = poisson.pmf(k=Yt, mu=np.exp(np.dot(X, Ws[i])))
@@ -155,14 +191,12 @@ for i in range(len(Ws)):
 
 O = np.array(O).T
 
-# O = np.ones_like(O)
-# O *= 0.5
 
 scores = []
 As = []
 Zs = []
 
-for _ in range(5):
+for _ in range(20):
 
     score = []
 
@@ -244,8 +278,11 @@ A = As[np.argmax(scores[-1])]
 bestZ = Zs[np.argmax(scores[-1])]
 
 
-# imap = Isomap(n_components=3, n_neighbors = 50).fit_transform(Yt)
-imap = KernelPCA(n_components=2, kernel='cosine').fit_transform(Yt)
+
+
+tmp = gaussian_filter1d(Yt.astype('float'), sigma=2,axis=0)
+#imap = Isomap(n_components=3, n_neighbors = 50).fit_transform(Yt)
+imap = KernelPCA(n_components=2, kernel='cosine').fit_transform(tmp)
 # scatter(imap[:,0], imap[:,1])
 # show()
 
@@ -270,7 +307,7 @@ plot(bestZ)
 subplot(312, sharex=ax)
 imshow(Yt.T, aspect='auto', cmap ='jet')
 subplot(313, sharex=ax)
-plot(np.log(O))
+plot(O)
 
 figure()
 gs = GridSpec(4, np.maximum(6, len(B)))

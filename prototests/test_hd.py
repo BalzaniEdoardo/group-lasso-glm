@@ -37,7 +37,7 @@ peaks = tuning_curves.idxmax()
 #####################################################################
 bin_size = 0.01
 ws = 100
-nb = 8
+nb = 6
 
 
 count = spikes.count(bin_size, wake_ep)
