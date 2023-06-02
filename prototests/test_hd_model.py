@@ -1,13 +1,15 @@
 # -*- coding: utf-8 -*-
 # @Author: Guillaume Viejo
 # @Date:   2023-05-19 13:29:18
-# @Last Modified by:   gviejo
-# @Last Modified time: 2023-05-28 22:53:30
+# @Last Modified by:   Guillaume Viejo
+# @Last Modified time: 2023-06-02 12:56:57
 import numpy as np
 from scipy.optimize import minimize
 from matplotlib.pyplot import *
 from sklearn.manifold import Isomap
 from scipy.ndimage import gaussian_filter1d
+from sklearn.linear_model import PoissonRegressor
+
 
 import neurostatslib as nsl
 from neurostatslib.glm import GLM
@@ -18,6 +20,7 @@ import jax
 import jax.numpy as jnp
 from functools import partial
 import jaxopt
+
 
 jax.config.update("jax_platform_name", "cpu")
 jax.config.update("jax_enable_x64", True)
@@ -100,17 +103,47 @@ def loss(b, X, Y):
     return jnp.mean(loss) + 0.5*jnp.sum(jnp.abs(b))
     # return jnp.mean(loss) + 0.1*jnp.sum(jnp.sqrt(jnp.maximum(0, jnp.sum(b**2.0, 1))))
 
+# def loss(b, X, Y):
+#     Xb = jnp.dot(X, b) 
+#     P = jax.nn.softplus(Xb)
+#     Xt = Y * jnp.log(P)
+#     Xt = jnp.where(jnp.isnan(Xt), jnp.zeros_like(Xt), Xt)
+#     return jnp.sum(P - Xt + jax.scipy.special.gammaln(Y+1))
+
+def loss1(b, X, y):
+    Xb = np.dot(X, b) 
+    exp_Xb = np.exp(Xb)
+    loss = np.sum(exp_Xb, 0) - np.sum(y*Xb, 0) # + jax.scipy.special.gammaln(Y+1)
+    grad = np.dot(X.T, exp_Xb - y)
+    return loss + 1.0*np.sum(np.power(b, 2)), grad
+    # return jnp.mean(loss) + 0.1*jnp.sum(jnp.sqrt(jnp.maximum(0, jnp.sum(b**2.0, 1))))
+
+# solver = jaxopt.GradientDescent(
+#     fun=loss, maxiter=20000, acceleration=False, verbose=True, stepsize=0.0
+#     )
+
+# W, state = solver.run(b0, X=X, Y=Y)
 
 
+W = []
+W_skl = []
 
-solver = jaxopt.GradientDescent(
-    fun=loss, maxiter=20000, acceleration=False, verbose=True, stepsize=0.0
-    )
+for i in range(n_neurons):
+    print(i)
+    w = minimize(loss1, b0[:,i], (X, Y[:,i]), jac=True, method='L-BFGS-B', tol = 1e-4)
+    W.append(w['x'])
 
-W, state = solver.run(b0, X=X, Y=Y)
+    # Sklearn comparison
+    model= PoissonRegressor()
+    model.fit(X, Y[:,i])
+    W_skl.append(model.coef_)
 
-
+W = np.array(W).T
 W2 = W[0:-1].reshape((n_neurons, n_basis_funcs, n_neurons))
+
+W_skl = np.array(W_skl).T
+W2_skl = W_skl[0:-1].reshape((n_neurons, n_basis_funcs, n_neurons))
+
 
 figure()
 gs = GridSpec(3, len(B))
@@ -127,6 +160,23 @@ for i in range(n_basis_funcs):
     im = imshow(W2[:,i,:].T,aspect='auto',vmin=W2.min(),vmax=W2.max())
 
 colorbar(im)
+
+figure()
+gs = GridSpec(3, len(B))
+subplot(gs[0,0:2])
+imshow(tc,aspect='auto')
+subplot(gs[0,2:4])
+imshow(W2_skl.mean(1), aspect='auto')
+
+for i in range(n_basis_funcs):
+    subplot(gs[1,i])
+    x = np.arange(B.shape[1])*-1
+    plot(x, B[i])
+    subplot(gs[2,i])
+    im = imshow(W2_skl[:,i,:].T,aspect='auto',vmin=W2_skl.min(),vmax=W2_skl.max())
+
+colorbar(im)
+
 
 ##############################################
 # TEST
