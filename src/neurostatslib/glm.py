@@ -73,6 +73,7 @@ class GLM:
     def fit(
         self,
         spike_data: NDArray,
+        X: Optional[NDArray] = None,
         init_params: Optional[Tuple[jnp.ndarray, jnp.ndarray]] = None,
     ):
         """Fit GLM to spiking data.
@@ -107,10 +108,11 @@ class GLM:
         n_neurons, _ = spike_data.shape
         n_basis_funcs, window_size = self.spike_basis_matrix.shape
 
-        # Convolve spikes with basis functions. We drop the last sample, as
-        # those are the features that could be used to predict spikes in the
-        # next time bin
-        X = convolve_1d_basis(self.spike_basis_matrix, spike_data)[:, :, :-1]
+        if X is None:
+            # Convolve spikes with basis functions. We drop the last sample, as
+            # those are the features that could be used to predict spikes in the
+            # next time bin
+            X = convolve_1d_basis(self.spike_basis_matrix, spike_data)[:, :, :-1]
 
         # Initialize parameters
         if init_params is None:
@@ -150,8 +152,8 @@ class GLM:
             )
 
         def loss(params, X, y):
-            predicted_firing_rates = self._predict(params, X)
-            return self._score(predicted_firing_rates, y)
+            #predicted_firing_rates = self._predict(params, X)
+            return self._score(params, X, y)
 
         # Run optimization
         solver = getattr(jaxopt, self.solver_name)(fun=loss, **self.solver_kwargs)
@@ -197,12 +199,13 @@ class GLM:
 
         """
         Ws, bs = params
+
         return self.inverse_link_function(
-            jnp.einsum("nbt,nbj->nt", convolved_spike_data, Ws) + bs[:, None]
+            jnp.einsum("nbt,nbj->ntj", convolved_spike_data, Ws) + bs[:, None]
         )
 
     def _score(
-        self, predicted_firing_rates: NDArray, target_spikes: NDArray
+        self, params: Tuple[jnp.ndarray, jnp.ndarray], convolved_spike_data: NDArray, target_spikes: NDArray
     ) -> jnp.ndarray:
         """Score the predicted firing rates against target spike counts.
 
@@ -243,7 +246,9 @@ class GLM:
                 ``predicted_firing_rates`` is $\lambda$
 
         """
-        x = target_spikes * jnp.log(predicted_firing_rates)
+        predicted_firing_rates = self._predict(params, convolved_spike_data)
+        spks = target_spikes[:,:,None]
+        x = spks * jnp.log(predicted_firing_rates)
         # this is a jax jit-friendly version of saying "put a 0 wherever
         # there's a NaN". we do this because NaNs result from 0*log(0)
         # (log(0)=-inf and any non-zero multiplied by -inf gives the expected
@@ -251,7 +256,7 @@ class GLM:
         x = jnp.where(jnp.isnan(x), jnp.zeros_like(x), x)
         # see above for derivation of this.
         return jnp.mean(
-            predicted_firing_rates - x + jax.scipy.special.gammaln(target_spikes + 1)
+            predicted_firing_rates - x + 0*jax.scipy.special.gammaln(target_spikes + 1)[:,:,None]
         )
 
     def predict(self, spike_data: NDArray) -> jnp.ndarray:
