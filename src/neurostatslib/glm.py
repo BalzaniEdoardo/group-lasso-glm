@@ -201,7 +201,7 @@ class GLM:
         Ws, bs = params
 
         return self.inverse_link_function(
-            jnp.einsum("nbt,nbj->ntj", convolved_spike_data, Ws) + bs[:, None]
+            jnp.einsum("nbt,nbj->nt", convolved_spike_data, Ws) + bs[:, None]
         )
 
     def _score(
@@ -247,7 +247,7 @@ class GLM:
 
         """
         predicted_firing_rates = self._predict(params, convolved_spike_data)
-        spks = target_spikes[:,:,None]
+        spks = target_spikes#[:,:,None]
         x = spks * jnp.log(predicted_firing_rates)
         # this is a jax jit-friendly version of saying "put a 0 wherever
         # there's a NaN". we do this because NaNs result from 0*log(0)
@@ -256,7 +256,7 @@ class GLM:
         x = jnp.where(jnp.isnan(x), jnp.zeros_like(x), x)
         # see above for derivation of this.
         return jnp.mean(
-            predicted_firing_rates - x + 0*jax.scipy.special.gammaln(target_spikes + 1)[:,:,None]
+            predicted_firing_rates - x + 0*jax.scipy.special.gammaln(target_spikes + 1)#[:,:]#,None]
         )
 
     def predict(self, spike_data: NDArray) -> jnp.ndarray:
