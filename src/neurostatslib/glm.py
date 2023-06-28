@@ -256,7 +256,7 @@ class GLM:
         x = jnp.where(jnp.isnan(x), jnp.zeros_like(x), x)
         # see above for derivation of this.
         return jnp.mean(
-            predicted_firing_rates - x + 0*jax.scipy.special.gammaln(target_spikes + 1)#[:,:]#,None]
+            predicted_firing_rates - x + jax.scipy.special.gammaln(target_spikes + 1)
         )
 
     def predict(self, spike_data: NDArray) -> jnp.ndarray:
