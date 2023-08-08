@@ -51,11 +51,31 @@ nwb = nap.NWBFile(io.read())
 units = nwb["units"]
 
 trials = nwb["trials"]
+trials[trials["correct_reach"]==1]
+
+epochs = nap.IntervalSet(start=trials["start_time"], end=trials["stop_time"])
 
 hand = nwb["Hand"]
+
+data = [count.restrict(count.time_support.loc[[i]]) for i in count.time_support.index]
+
+hand = hand.restrict(epochs)
 
 print(nwb)
 
 #####################################
 # GLM
 #####################################
+
+
+
+
+
+
+
+
+
+
+
+
+
