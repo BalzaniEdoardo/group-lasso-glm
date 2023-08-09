@@ -10,7 +10,7 @@ import jaxopt
 from numpy.typing import NDArray
 from sklearn.exceptions import NotFittedError
 
-from .utils import convolve_1d_basis
+from .utils import convolve_1d_trials
 
 
 class GLM:
@@ -104,8 +104,17 @@ class GLM:
                 "spike_data must be two-dimensional, with shape (n_neurons, n_timebins)"
             )
 
-        _, n_neurons = spike_data.shape
-        n_features = X.shape[2]
+
+        n_neurons, _ = spike_data.shape
+        n_basis_funcs, window_size = self.spike_basis_matrix.shape
+
+        # Convolve spikes with basis functions. We drop the last sample, as
+        # those are the features that could be used to predict spikes in the
+        # next time bin
+        X = jnp.transpose(
+            convolve_1d_trials(self.spike_basis_matrix.T, [spike_data.T])[0], (1, 2, 0)
+        )[:, :, :-1]
+
 
         # Initialize parameters
         if init_params is None:
@@ -304,7 +313,14 @@ class GLM:
         self.check_is_fit()
         Ws = self.spike_basis_coeff_
         bs = self.baseline_log_fr_
+
         self.check_n_neurons(spike_data, bs)
+
+        X = jnp.transpose(
+            convolve_1d_trials(self.spike_basis_matrix.T, spike_data.T[None, :, :])[0],
+            (1, 2, 0),
+        )
+
         return self._predict((Ws, bs), X)
 
     def score(self, X: NDArray, spike_data: NDArray) -> jnp.ndarray:
@@ -429,11 +445,12 @@ class GLM:
 
         subkeys = jax.random.split(random_key, num=n_timesteps)
 
+
         def scan_fn(data, key):
             spikes, chunk = data
             conv_spk = jnp.transpose(
-                jnp.array(convolve_1d_basis(coupling_basis_matrix.T, spikes.T)),
-                (2, 0, 1)
+                convolve_1d_trials(self.coupling_basis_matrix.T, spikes.T[None, :, :])[0],
+                (1, 2, 0),
             )
             slice = jax.lax.dynamic_slice(
                 X_input, (chunk, 0, 0), (1, X_input.shape[1], X_input.shape[2])
@@ -443,6 +460,7 @@ class GLM:
             new_spikes = jax.random.poisson(key, firing_rate)
             # this remains always of the same shape
             concat_spikes = jnp.row_stack((spikes[1:], new_spikes)), chunk + 1
+
             return concat_spikes, new_spikes
 
         _, simulated_spikes = jax.lax.scan(scan_fn, (init_spikes,0), subkeys)
