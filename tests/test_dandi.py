@@ -1,12 +1,10 @@
 import pynwb
 
 from pynwb import NWBHDF5IO, TimeSeries
-from sklearn.linear_model import PoissonRegressor
-from sklearn.model_selection import GridSearchCV
+import sklearn.model_selection as model_selection
 
 from dandi.dandiapi import DandiAPIClient
 import pynapple as nap
-import numpy as np
 import jax.numpy as jnp
 import fsspec
 from fsspec.implementations.cached import CachingFileSystem
@@ -17,6 +15,7 @@ import pynwb
 import h5py
 
 from matplotlib.pylab import *
+
 
 #####################################
 # Dandi
@@ -62,47 +61,50 @@ tc, binsxy = nap.compute_2d_tuning_curves(units, position, 15)
 
 figure()
 for i in tc.keys():
-    subplot(3,3,i+1)
-    imshow(tc[i])
+    ax = subplot(2,4,i+1)
+    imshow(tc[i], origin="lower")
+    ax.set_aspect("equal")
 #show()
 
 figure()
 for i in units.keys():
-    subplot(3,3,i+1)
-    plot(position['x'], position['y'])
+    ax = subplot(2,4,i+1)
+    plot(position['y'], position['x'])
     spk_pos = units[i].value_from(position)
-    plot(spk_pos["x"], spk_pos["y"], 'o', color = 'red', markersize = 1, alpha = 0.5)
-
+    plot(spk_pos["y"], spk_pos["x"], 'o', color = 'red', markersize = 1, alpha = 0.5)
+    ax.set_aspect("equal")
+plt.tight_layout()
 show()
 
 
 #####################################
 # GLM
 #####################################
+
 # create the binning
-t0 = position.time_support.start[0]
-tend = position.time_support.end[0]
-ts = np.arange(t0, tend + 0.005, 0.005)
+counts = units.count(0.005, ep=position.time_support)
 
 # linear interp position
-position_interp = np.zeros((ts.shape[0]-1, 2))
-position_interp[:, 0] = interp1d(position.times(), position.x)(ts[:-1])
-position_interp[:, 1] = interp1d(position.times(), position.y)(ts[:-1])
+position_interp = np.zeros((counts.shape[0], 2))
+position_interp[:, 0] = interp1d(position.times(), position.x)(counts.times())
+position_interp[:, 1] = interp1d(position.times(), position.y)(counts.times())
 
-# bin spikes
-binning = nap.IntervalSet(start=ts[:-1], end=ts[1:], time_units='s')
-counts = jnp.asarray(units.count(ep=binning))
-plt.close('all')
-# convolve counts
+# convert to jax
+counts = jnp.asarray(counts, dtype=jnp.float32)
+position_interp = jnp.asarray(position_interp, dtype=jnp.float32)
+
+# # convolve counts
 window_size = 100
 basis = nsl.basis.RaisedCosineBasisLog(n_basis_funcs=7)
-x, eval_basis = basis.evaluate_on_grid(window_size)
-plt.plot(x, eval_basis)
+
+# extract convolution filter
+_, eval_basis = basis.evaluate_on_grid(window_size)
 conv_counts = nsl.utils.convolve_1d_trials(eval_basis, counts[None, :, :])
 conv_counts = nsl.utils.nan_pad_conv(conv_counts,
-                                     window_size, filter_type="causal")
+                                     window_size,
+                                     filter_type="causal")
 
-# evaluate position on 2D = basis
+# # evaluate position on 2D = basis
 basis_2d = nsl.basis.MSplineBasis(n_basis_funcs=12, order=4) * \
             nsl.basis.MSplineBasis(n_basis_funcs=12, order=4)
 position_basis = basis_2d.evaluate(position_interp[:, 0],
@@ -114,26 +116,22 @@ y, X = nsl.utils.combine_inputs(counts,
                                 position_basis[None, :, None],
                                 strip_left=window_size,
                                 reps=counts.shape[1])
-X = jnp.asarray(X)
-y = jnp.asarray(y)
 
-alpha = 2
-model_jax = nsl.glm.GLM(solver_name="LBFGS",
+# fit GLM
+solver = 'BFGS'
+solver_kwargs = {'tol': 10**-6, 'maxiter': 1000, 'jit':True}
+init_params = jnp.zeros((y.shape[1], X.shape[2])), jnp.log(jnp.mean(y, axis=0))
+
+alpha = 1.
+model_jax = nsl.glm.GLM(solver_name=solver,
                         inverse_link_function=jnp.exp,
-                        alpha=alpha, solver_kwargs={'tol':10**-8,'maxiter':1000})
-model_jax.fit(X[:,:1], y[:,:1])
+                        alpha=alpha, solver_kwargs=solver_kwargs)
+model_jax.fit(X, y, init_params=init_params)
 
-XX, YY, Z = nsl.visualize.eval_response(basis_2d, model_jax.spike_basis_coeff_[:, -basis_2d.n_basis_funcs:], 30)
+# visualize output
+_, _, Z = nsl.visualize.eval_response(basis_2d, model_jax.spike_basis_coeff_[:, -basis_2d.n_basis_funcs:], 30)
+nsl.visualize.imshow_units(Z[1:-1, 1:-1], 2, 4)
 
-model = PoissonRegressor(alpha=alpha,tol=10**-8,solver="lbfgs",max_iter=1000,fit_intercept=True)
-cls = model#GridSearchCV(model, param_grid={"alpha":[1, 0.5]})
-cls.fit(X[:,0,:], y[:,0])
-#model = cls.best_estimator_
-XX, YY, Z = nsl.visualize.eval_response(basis_2d, model.coef_[None, -basis_2d.n_basis_funcs:], 30)
-
-for k in range(Z.shape[2]):
-    plt.figure()
-    plt.imshow(Z[:, :, k])
-# remove nans
-
-# stack & fit
+# # Sklearn compatibility
+# cls = model_selection.GridSearchCV(model_jax, param_grid={'alpha':[1., 10.]})
+# cls.fit(X[:, :1, :], y)
