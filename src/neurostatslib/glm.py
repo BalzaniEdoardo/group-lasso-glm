@@ -43,7 +43,8 @@ class GLM:
         Solutions for the spike basis coefficients, set during ``fit()``
     baseline_log_fr : jnp.ndarray, (n_neurons,)
         Solutions for bias terms, set during ``fit()``
-
+    alpha:
+        Regularizer strength, default = 0.
     """
 
     def __init__(
@@ -51,6 +52,7 @@ class GLM:
         solver_name: str = "GradientDescent",
         solver_kwargs: dict = dict(),
         inverse_link_function: Callable[[jnp.ndarray], jnp.ndarray] = jax.nn.softplus,
+        alpha: float = 0
     ):
         self.solver_name = solver_name
         try:
@@ -66,11 +68,12 @@ class GLM:
                 )
         self.solver_kwargs = solver_kwargs
         self.inverse_link_function = inverse_link_function
+        self.alpha = alpha
 
     def fit(
         self,
-        spike_data: NDArray,
         X: NDArray,
+        spike_data: NDArray,
         init_params: Optional[Tuple[jnp.ndarray, jnp.ndarray]] = None,
     ):
         """Fit GLM to spiking data.
@@ -80,10 +83,10 @@ class GLM:
 
         Parameters
         ----------
-        spike_data :
-            Spike counts arranged in a matrix, shape (n_time_bins, n_neurons).
         X :
             Predictors, shape (n_time_bins, n_neurons, n_features)
+        spike_data :
+            Spike counts arranged in a matrix, shape (n_time_bins, n_neurons).
         init_params :
             Initial values for the spike basis coefficients and bias terms. If
             None, we initialize with zeros. shape.  ((n_neurons, n_features), (n_neurons,))
@@ -104,17 +107,8 @@ class GLM:
                 "spike_data must be two-dimensional, with shape (n_neurons, n_timebins)"
             )
 
-
-        n_neurons, _ = spike_data.shape
-        n_basis_funcs, window_size = self.spike_basis_matrix.shape
-
-        # Convolve spikes with basis functions. We drop the last sample, as
-        # those are the features that could be used to predict spikes in the
-        # next time bin
-        X = jnp.transpose(
-            convolve_1d_trials(self.spike_basis_matrix.T, [spike_data.T])[0], (1, 2, 0)
-        )[:, :, :-1]
-
+        _, n_neurons = spike_data.shape
+        n_features = X.shape[2]
 
         # Initialize parameters
         if init_params is None:
@@ -150,7 +144,7 @@ class GLM:
             )
 
         def loss(params, X, y):
-            return self._score(X, y, params)
+            return self._score(X, y, params) + 0.5 * self.alpha * jnp.sum(jnp.power(params[0], 2))/params[1].shape[0]
 
         # Run optimization
         solver = getattr(jaxopt, self.solver_name)(fun=loss, **self.solver_kwargs)
@@ -277,16 +271,13 @@ class GLM:
                 f"self.baseline_log_fr_ n_neurons: {self.baseline_log_fr_.shape[0]}"
             )
 
-    def predict(self, X: NDArray, spike_data: NDArray) -> jnp.ndarray:
+    def predict(self, X: NDArray) -> jnp.ndarray:
         """Predict firing rates based on fit parameters, for checking against existing data.
 
         Parameters
         ----------
         X : (n_time_bins, n_neurons, n_features)
             The exogenous variables.
-        spike_data : (n_time_bins, n_neurons)
-            Spike counts arranged in a matrix. n_neurons must be the same as
-            during the fitting of this GLM instance.
 
         Returns
         -------
@@ -313,14 +304,7 @@ class GLM:
         self.check_is_fit()
         Ws = self.spike_basis_coeff_
         bs = self.baseline_log_fr_
-
-        self.check_n_neurons(spike_data, bs)
-
-        X = jnp.transpose(
-            convolve_1d_trials(self.spike_basis_matrix.T, spike_data.T[None, :, :])[0],
-            (1, 2, 0),
-        )
-
+        self.check_n_neurons(X, bs)
         return self._predict((Ws, bs), X)
 
     def score(self, X: NDArray, spike_data: NDArray) -> jnp.ndarray:

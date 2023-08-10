@@ -454,7 +454,7 @@ class SplineBasis(Basis, abc.ABC):
         # to mx so that the so that basis_element(max(samples)) != 0
         mn = np.nanpercentile(sample_pts, np.clip(perc_low * 100, 0, 100))
         mx = np.nanpercentile(sample_pts, np.clip(perc_high * 100, 0, 100)) + 10**-8
-
+        print('knots', mn, mx)
         self.knot_locs = np.concatenate(
             (
                 mn * np.ones(self.order - 1),
@@ -504,6 +504,8 @@ class MSplineBasis(SplineBasis):
             Evaluated spline basis functions, shape (number of samples, number of basis).
 
         """
+        mn, mx = np.nanpercentile(sample_pts,[0,100])
+        sample_pts = (sample_pts - mn) / (mx - mn)
         # add knots if not passed
         self._generate_knots(sample_pts, perc_low=0.0, perc_high=1.0, is_cyclic=False)
 

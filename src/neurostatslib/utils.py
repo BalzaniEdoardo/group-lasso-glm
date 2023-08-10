@@ -374,3 +374,25 @@ def row_wise_kron(A: jnp.array, C: jnp.array, jit=False, transpose=True) -> jnp.
         K = K.T
 
     return K
+
+def combine_inputs(exog:NDArray, *x_input:NDArray, strip_left: int=0,
+                   strip_right: int=0, reps:int=1):
+    exog = jnp.asarray(exog)
+    print(exog.shape)
+    exog = exog[strip_left: exog.shape[0] - strip_right]
+    first = True
+    for x in x_input:
+
+        x = jnp.asarray(x)
+        print('before', x.shape)
+        x = x[:, strip_left: x.shape[1] - strip_right]
+        x = x.reshape(x.shape[0], x.shape[1], -1)
+        x = x.reshape(x.shape[0] * x.shape[1], -1)
+        print('after', x.shape)
+        if first:
+            out = x
+            first = False
+        else:
+            out = jnp.concatenate([out, x], axis=1)
+
+    return exog, jnp.tile(out, reps).reshape(out.shape[0], reps, out.shape[1])
