@@ -15,6 +15,7 @@ nn, nt, ws, nb, nbi = 2, 35000, 30, 5, 0
 X = np.random.normal(size=(nt, nn, nb*nn+nbi))
 W_true = np.random.normal(size=(nn, nb*nn+nbi)) * 0.8
 W_true[0, nb:nb*2] = 0.
+W_true[1, :nb] = 0.
 mask = np.zeros((nn, nb*nn+nbi))
 mask[1, nb:nb*2] = 1
 mask[0, :nb] = 1
