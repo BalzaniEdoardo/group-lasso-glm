@@ -126,7 +126,6 @@ class Basis(abc.ABC):
             The size of Xs[i] is (n_samples[0], ... , n_samples[n]).
         Y :
             The basis function evaluated at the samples,
-            shape (n_basis_funcs, n_samples[0], ... , n_samples[n]).
 
         Raises
         ------
@@ -321,7 +320,7 @@ class AdditiveBasis(Basis):
         Returns
         -------
         :
-            The basis function evaluated at the samples (number of samples x n_basis_funcs)
+            The basis function evaluated at the samples, shape (n_samples, n_basis_funcs)
         """
         return np.hstack(
             (
@@ -374,7 +373,7 @@ class MultiplicativeBasis(Basis):
         Returns
         -------
         :
-            The basis function evaluated at the samples (number of samples x n_basis_funcs)
+            The basis function evaluated at the samples, shape (n_samples, n_basis_funcs)
         """
         return np.array(
             row_wise_kron(
@@ -500,8 +499,7 @@ class MSplineBasis(SplineBasis):
         Returns
         -------
         basis_funcs :
-            Evaluated spline basis functions, shape (number of samples, number of basis).
-
+            Evaluated spline basis functions, shape (n_samples, n_basis_funcs).
         """
         mn, mx = np.nanpercentile(sample_pts,[0,100])
         sample_pts = (sample_pts - mn) / (mx - mn)
@@ -565,8 +563,7 @@ class RaisedCosineBasis(Basis, abc.ABC):
         Returns
         -------
         basis_funcs :
-            Raised cosine basis functions, shape (n_basis_funcs, number of samples).
-
+            Raised cosine basis functions, shape (n_samples, n_basis_funcs).
 
         Raises
         ------

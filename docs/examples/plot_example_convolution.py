@@ -41,7 +41,6 @@ spk[-4] = 1
 # create three filters
 basis_obj = nsl.basis.RaisedCosineBasisLinear(n_basis_funcs=3)
 _, w = basis_obj.evaluate_on_grid(ws)
-w = w.T
 
 plt.plot(w)
 

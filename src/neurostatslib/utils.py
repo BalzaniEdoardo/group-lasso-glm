@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from functools import partial
-from typing import Iterable, List, Optional, Union
+from typing import Iterable, List, Literal, Optional, Union
 
 import jax
 import jax.numpy as jnp
@@ -13,7 +13,7 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
 # Same trial duration
-# [[r x t x n], [w]] -> [r x (t - w + 1) x n]
+# [[r , t , n], [w]] -> [r , (t - w + 1) , n]
 # Broadcasted 1d convolution operations
 _CORR1 = jax.vmap(partial(jnp.convolve, mode="valid"), (0, None), 0)
 _CORR2 = jax.vmap(_CORR1, (2, None), 2)
@@ -37,9 +37,9 @@ def check_dimensionality(
     Parameters
     ----------
     iterable :
-    Array-like object containing numpy or jax.numpy NDArrays.
+        Array-like object containing numpy or jax.numpy NDArrays.
     expected_dim :
-    Number of expected dimension for the NDArrays.
+        Number of expected dimension for the NDArrays.
 
     Returns
     -------
@@ -119,14 +119,11 @@ def convolve_1d_trials(
             "be greater or equal to the window size."
         )
 
-    # Check if all trials have the same duration # check if needed
-    same_dur = time_series.ndim == 3 if isinstance(time_series, jnp.ndarray) else False
-
-    if same_dur:
-        # Trials have the same duration. # call conv instead of corr
+    if isinstance(time_series, jnp.ndarray):
+        # if the conversion to array went through, time_series have trials with equal size
         conv_trials = list(_CORR_SAME_TRIAL_DUR(time_series, basis_matrix))
     else:
-        # Trials have variable durations.
+        # trials have different length
         conv_trials = [
             _CORR_VARIABLE_TRIAL_DUR(jnp.atleast_2d(trial), basis_matrix)
             for trial in time_series
@@ -135,16 +132,17 @@ def convolve_1d_trials(
     return conv_trials
 
 
-def pad_dimension(
+def _pad_dimension(
     array: jnp.ndarray,
     axis: int,
     window_size: int,
-    filter_type: str = "causal",
+    filter_type: Literal["causal", "acausal", "anti-causal"] = "causal",
     constant_values: float = jnp.nan,
 ) -> jnp.ndarray:
     """
     Add padding to the last dimension of an array based on the convolution type.
 
+    This is a helper function used by `nan_pad_conv`, which is the function we expect the user will interact with.
     Parameters
     ----------
     array:
@@ -154,7 +152,7 @@ def pad_dimension(
     window_size:
         The window size to determine the padding.
     filter_type:
-        The type of convolution, default is 'causal'. It must be one of 'causal', 'acausal', or 'anti-causal'.
+        The type of convolution.
     constant_values:
         The constant values for padding, default is jnp.nan.
 
@@ -177,6 +175,14 @@ def pad_dimension(
         "anti-causal": (0, window_size),
     }
 
+    if filter_type not in padding_settings:
+        cases_string = " or ".join(padding_settings).replace(
+            " or ", ", ", len(padding_settings) - 2
+        )
+        raise ValueError(
+            f"filter_type must be {cases_string}. {filter_type} provided instead!"
+        )
+
     pad_width = (
         ((0, 0),) * axis
         + (padding_settings[filter_type],)
@@ -188,7 +194,7 @@ def pad_dimension(
 def nan_pad_conv(
     conv_trials: Union[Iterable[jnp.ndarray], Iterable[NDArray], NDArray, jnp.ndarray],
     window_size: int,
-    filter_type: str = "causal",
+    filter_type: Literal["causal", "acausal", "anti-causal"] = "causal",
 ) -> List[jnp.ndarray]:
     """
     Add NaN padding to convolution trials based on the convolution type.
@@ -200,7 +206,7 @@ def nan_pad_conv(
     window_size:
         The window size to determine the padding.
     filter_type: str, optional
-        The type of convolution, by default 'causal'. It must be one of 'causal', 'acausal', or 'anti-causal'.
+        The type of convolution.
 
     Returns
     -------
@@ -225,8 +231,11 @@ def nan_pad_conv(
     }
 
     if filter_type not in adjust_indices:
+        cases_string = " or ".join(adjust_indices).replace(
+            " or ", ", ", len(adjust_indices) - 2
+        )
         raise ValueError(
-            f'filter_type must be "causal", "acausal", or "anti-causal". {filter_type} provided instead!'
+            f"filter_type must be {cases_string}. {filter_type} provided instead!"
         )
 
     start, end = adjust_indices[filter_type]
@@ -240,7 +249,7 @@ def nan_pad_conv(
 
         conv_trials = conv_trials[:, start:end]
         return list(
-            pad_dimension(
+            _pad_dimension(
                 conv_trials, 1, window_size, filter_type, constant_values=jnp.nan
             )
         )
@@ -252,7 +261,7 @@ def nan_pad_conv(
             )
 
         return [
-            pad_dimension(
+            _pad_dimension(
                 trial[start:end],
                 0,
                 window_size,
