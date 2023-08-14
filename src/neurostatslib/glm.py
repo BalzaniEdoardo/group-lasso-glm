@@ -33,14 +33,14 @@ def _norm2_masked(weight_neuron, mask):
     :
     The norm of the weight vector corresponding to the feature in mask.
     """
-    return jnp.linalg.norm(weight_neuron * mask, 2)
+    return jnp.sqrt(mask.sum()) * jnp.linalg.norm(weight_neuron * mask, 2)
 
 
 # vectorize the norm function above, [(n_neurons, n_features), (n_groups, n_features)] -> (n_neurons, n_groups)
 _vmap_norm2_masked_1 = jax.vmap(_norm2_masked, in_axes=(0, None), out_axes=0)
 _vmap_norm2_masked_2 = jax.vmap(_vmap_norm2_masked_1, in_axes=(None, 0), out_axes=1)
 
-@jax.jit
+
 def _multiply_masked(Ws: jnp.ndarray, factor: jnp.ndarray, mask: jnp.ndarray) -> jnp.ndarray:
     """Proximal gradient for group lasso.
 
@@ -60,36 +60,59 @@ def _multiply_masked(Ws: jnp.ndarray, factor: jnp.ndarray, mask: jnp.ndarray) ->
     """
     return Ws * jnp.einsum('ng, gf->nf', factor, mask)
 
-@jax.jit
+#@jax.jit
 def prox_group_lasso(
-        W: jnp.ndarray,
+        params: Tuple[jnp.ndarray, jnp.ndarray],
         l2reg: float,
-        scaling: float,
-        mask: jnp.ndarray):
+        mask: jnp.ndarray,
+        scaling: float = 1.):
     """Proximal gradient for group lasso.
 
     Parameters
     ----------
-    W:
+    params:
         Weights, shape (n_neurons, n_features)
     l2reg:
         The regularization hyperparameter.
+    mask:
+        ND array of 0,1 as float32, feature mask. size (n_groups x n_features)
     scaling:
         The scaling factor for the group-lasso (it will be set
         depending on the step-size).
-    mask:
-        ND array of 0,1 as float32, feature mask. size (n_groups x n_features)
     Returns
     -------
 
     """
+    weights, intercepts = params
     # returns a n_neurons x n_groups
-    l2_norm = _vmap_norm2_masked_2(W, mask)
+    l2_norm = _vmap_norm2_masked_2(weights, mask)
     factor = 1 - l2reg * scaling / l2_norm
     factor = jnp.where(factor >= 0, factor, 0)
-    return _multiply_masked(W, factor, mask)
+    return _multiply_masked(weights, factor, mask), intercepts
 
 class Estimator(abc.ABC):
+    def __init__(
+            self,
+            solver_name: str = "GradientDescent",
+            solver_kwargs: dict = dict(),
+            inverse_link_function: Callable[[jnp.ndarray], jnp.ndarray] = jax.nn.softplus,
+    ):
+        # (n_basis_funcs, window_size)
+        self.solver_name = solver_name
+        try:
+            solver_args = inspect.getfullargspec(getattr(jaxopt, solver_name)).args
+        except AttributeError:
+            raise AttributeError(
+                f"module jaxopt has no attribute {solver_name}, pick a different solver!"
+            )
+        for k in solver_kwargs.keys():
+            if k not in solver_args:
+                raise NameError(
+                    f"kwarg {k} in solver_kwargs is not a kwarg for jaxopt.{solver_name}!"
+                )
+        self.solver_kwargs = solver_kwargs
+        self.inverse_link_function = inverse_link_function
+
     def get_params(self, deep=True):
         """
         from scikit-learn, get parameters by inpecting init
@@ -227,34 +250,6 @@ class Estimator(abc.ABC):
         pass
 
 
-def loss_base(params: Tuple[jnp.ndarray, jnp.ndarray],
-              estimator: Estimator,
-              X: NDArray,
-              y: NDArray):
-    return estimator._score(X, y, params)
-
-
-def loss_L2(params: Tuple[jnp.ndarray, jnp.ndarray],
-            estimator: Estimator,
-            X: NDArray,
-            y: NDArray
-            ):
-    pen = 0.5 * estimator.alpha * jnp.sum(jnp.power(params[0], 2)) / params[1].shape[0]
-    return estimator._score(X, y, params) + pen
-
-
-def loss_group_lasso(
-        params: Tuple[jnp.ndarray, jnp.ndarray],
-        estimator: Estimator,
-        X: NDArray,
-        y: NDArray,
-        mask: NDArray,
-):
-    Ws, bs = params
-    pen = estimator.alpha * jnp.sum(jnp.mean(_vmap_norm2_masked_2(Ws, mask), axis=0))
-    return estimator._score(X, y, params) + pen
-
-
 class GLM(Estimator):
     """Generalized Linear Model for neural responses.
 
@@ -294,14 +289,14 @@ class GLM(Estimator):
             solver_name: str = "GradientDescent",
             solver_kwargs: dict = dict(),
             inverse_link_function: Callable[[jnp.ndarray], jnp.ndarray] = jax.nn.softplus,
-            alpha: float = 0
-    ):
-        super(self).__init__(
+            alpha: float = 0.
+        ):
+        super().__init__(
             solver_name=solver_name,
             solver_kwargs=solver_kwargs,
-            inverse_link_function=inverse_link_function,
-            alpha=alpha
+            inverse_link_function=inverse_link_function
         )
+        self.alpha = alpha
 
     def fit(
             self,
@@ -352,29 +347,7 @@ class GLM(Estimator):
                 jnp.log(jnp.mean(spike_data, axis=0))
             )
 
-        if init_params[0].ndim != 2:
-            raise ValueError(
-                "spike basis coefficients must be of shape (n_neurons, n_features), but"
-                f" init_params[0] has {init_params[0].ndim} dimensions!"
-            )
-
-        if init_params[1].ndim != 1:
-            raise ValueError(
-                "bias terms must be of shape (n_neurons,) but init_params[0] have"
-                f"{init_params[1].ndim} dimensions!"
-            )
-        if init_params[0].shape[0] != init_params[1].shape[0]:
-            raise ValueError(
-                "spike basis coefficients must be of shape (n_neurons, n_features), and"
-                "bias terms must be of shape (n_neurons,) but n_neurons doesn't look the same in both!"
-                f"init_params[0]: {init_params[0].shape[0]}, init_params[1]: {init_params[1].shape[0]}"
-            )
-        if init_params[0].shape[0] != spike_data.shape[1]:
-            raise ValueError(
-                "spike basis coefficients must be of shape (n_neurons, n_features), and "
-                "spike_data must be of shape (n_time_bins, n_neurons) but n_neurons doesn't look the same in both! "
-                f"init_params[0]: {init_params[0].shape[1]}, spike_data: {spike_data.shape[1]}"
-            )
+        self.check_params(init_params, spike_data)
 
         def loss(params, X, y):
             return self._score(X, y, params) + 0.5 * self.alpha * jnp.sum(jnp.power(params[0], 2)) / params[1].shape[0]
@@ -483,6 +456,31 @@ class GLM(Estimator):
             predicted_firing_rates - x
         )
 
+    def check_params(self, params, spike_data):
+        if params[0].ndim != 2:
+            raise ValueError(
+                "spike basis coefficients must be of shape (n_neurons, n_features), but"
+                f" init_params[0] has {params[0].ndim} dimensions!"
+            )
+
+        if params[1].ndim != 1:
+            raise ValueError(
+                "bias terms must be of shape (n_neurons,) but init_params[0] have"
+                f"{params[1].ndim} dimensions!"
+            )
+        if params[0].shape[0] != params[1].shape[0]:
+            raise ValueError(
+                "spike basis coefficients must be of shape (n_neurons, n_features), and"
+                "bias terms must be of shape (n_neurons,) but n_neurons doesn't look the same in both!"
+                f"init_params[0]: {params[0].shape[0]}, init_params[1]: {params[1].shape[0]}"
+            )
+        if params[0].shape[0] != spike_data.shape[1]:
+            raise ValueError(
+                "spike basis coefficients must be of shape (n_neurons, n_features), and "
+                "spike_data must be of shape (n_time_bins, n_neurons) but n_neurons doesn't look the same in both! "
+                f"init_params[0]: {params[0].shape[1]}, spike_data: {spike_data.shape[1]}"
+            )
+
     def check_is_fit(self):
         if not hasattr(self, "spike_basis_coeff_"):
             raise NotFittedError(
@@ -583,6 +581,7 @@ class GLM(Estimator):
         bs = self.baseline_log_fr_
         self.check_n_neurons(spike_data, bs)
         return -(self._score(X, spike_data, (Ws, bs)) + jax.scipy.special.gammaln(spike_data + 1).mean())
+
 
     def simulate(
             self,
@@ -686,22 +685,23 @@ class GLM(Estimator):
 
 class GLMGroupLasso(GLM):
     def __init__(self,
-                 solver_name: str = "ProximalGradient",
                  solver_kwargs: dict = dict(),
                  inverse_link_function: Callable[[jnp.ndarray], jnp.ndarray] = jax.nn.softplus,
-                 alpha: float = 0
+                 alpha: float = 0.
                  ):
-        super(self).__init__(solver_name,
-                             solver_kwargs=solver_kwargs,
-                             inverse_link_function=inverse_link_function,
-                             alpha=alpha,
-                             )
+        super().__init__(
+                         "ProximalGradient",
+                         solver_kwargs=solver_kwargs,
+                         inverse_link_function=inverse_link_function,
+                         alpha=alpha
+                        )
 
     def fit(self,
             X,
             spike_data,
             init_params: Optional[Tuple[jnp.ndarray, jnp.ndarray]] = None,
             mask: Optional[NDArray] = None):
+
         if spike_data.ndim != 2:
             raise ValueError(
                 "spike_data must be two-dimensional, with shape (n_neurons, n_timebins)"
@@ -710,13 +710,15 @@ class GLMGroupLasso(GLM):
         _, n_neurons = spike_data.shape
         n_features = X.shape[2]
 
+        # default mask (1 group, equivalent to lasso)
         if mask is None:
             mask = jnp.ones((1, n_features), dtype=jnp.float32)
+        # convert to float mask and check it
         else:
             mask = jnp.asarray(mask, dtype=jnp.float32)
             if not jnp.all((mask == 0) | (mask == 1)):
                 raise ValueError("mask should contain only 0s and 1s.")
-            if not jnp.all(mask.sum(axis=1) == 1):
+            if not jnp.all(mask.sum(axis=0) == 1):
                 raise ValueError("mask should sum to one over the features."
                                  "Each feature should be assigned to one and only one group.")
 
@@ -729,36 +731,40 @@ class GLMGroupLasso(GLM):
                 jnp.log(jnp.mean(spike_data, axis=0))
             )
 
-        if init_params[0].ndim != 2:
-            raise ValueError(
-                "spike basis coefficients must be of shape (n_neurons, n_features), but"
-                f" init_params[0] has {init_params[0].ndim} dimensions!"
-            )
+        self.check_params(init_params, spike_data)
 
-        if init_params[1].ndim != 1:
-            raise ValueError(
-                "bias terms must be of shape (n_neurons,) but init_params[0] have"
-                f"{init_params[1].ndim} dimensions!"
-            )
-        if init_params[0].shape[0] != init_params[1].shape[0]:
-            raise ValueError(
-                "spike basis coefficients must be of shape (n_neurons, n_features), and"
-                "bias terms must be of shape (n_neurons,) but n_neurons doesn't look the same in both!"
-                f"init_params[0]: {init_params[0].shape[0]}, init_params[1]: {init_params[1].shape[0]}"
-            )
-        if init_params[0].shape[0] != spike_data.shape[1]:
-            raise ValueError(
-                "spike basis coefficients must be of shape (n_neurons, n_features), and "
-                "spike_data must be of shape (n_time_bins, n_neurons) but n_neurons doesn't look the same in both! "
-                f"init_params[0]: {init_params[0].shape[1]}, spike_data: {spike_data.shape[1]}"
-            )
+        def loss(params, X, y):
+            return self._score(X, y, params)
+
+        def prox_op(params, l2reg, scaling=1.):
+            return prox_group_lasso(
+                params,
+                l2reg=l2reg,
+                mask=mask,
+                scaling=scaling)
 
         solver = getattr(jaxopt, self.solver_name)(
-            fun=loss_base,
-            prox=prox_group_lasso,
-            grad=jax.grd(loss_base),
+            fun=loss,
+            prox=prox_op,
+            value_and_grad=False,
             **self.solver_kwargs
         )
-        params, state = solver.run(init_params, estimator=self,
-                                   X=X, y=spike_data,
-                                   mask=mask)
+        params, state = solver.run(init_params,
+                                   X=X,
+                                   y=spike_data,
+                                   hyperparams_prox=self.alpha)
+
+        if jnp.isnan(params[0]).any() or jnp.isnan(params[1]).any():
+            raise ValueError(
+                "Solver returned at least one NaN parameter, so solution is invalid!"
+                " Try tuning optimization hyperparameters."
+            )
+        # Store parameters
+        self.spike_basis_coeff_ = params[0]
+        self.baseline_log_fr_ = params[1]
+        # note that this will include an error value, which is not the same as
+        # the output of loss. I believe it's the output of
+        # solver.l2_optimality_error
+        self.solver_state = state
+        self.solver = solver
+

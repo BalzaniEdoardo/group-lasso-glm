@@ -11,7 +11,7 @@ import jax.numpy as jnp
 
 np.random.seed(100)
 alpha = 1
-nn, nt, ws, nb, nbi = 2, 15000, 30, 5, 0
+nn, nt, ws, nb, nbi = 2, 35000, 30, 5, 0
 X = np.random.normal(size=(nt, nn, nb*nn+nbi))
 W_true = np.random.normal(size=(nn, nb*nn+nbi)) * 0.8
 b_true = -3*np.ones(nn)
@@ -33,7 +33,7 @@ for k in range(nn):
     b_skl[k] = model_skl.intercept_
     pred_skl[:, k] = model_skl.predict(X[:, k,:])
 
-model_jax = GLM(solver_name="BFGS", solver_kwargs={'tol':10**-8, 'maxiter':1000},inverse_link_function=jnp.exp,
+model_jax = GLM(solver_name="BFGS", solver_kwargs={'tol':10**-8, 'maxiter':1000, 'jit':True},inverse_link_function=jnp.exp,
                 alpha=alpha)
 model_jax.fit(X, spikes)
 mean_ll_jax = model_jax._score(X, spikes, (W_true, b_true))

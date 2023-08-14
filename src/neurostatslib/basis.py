@@ -501,8 +501,6 @@ class MSplineBasis(SplineBasis):
         basis_funcs :
             Evaluated spline basis functions, shape (n_samples, n_basis_funcs).
         """
-        mn, mx = np.nanpercentile(sample_pts,[0,100])
-        sample_pts = (sample_pts - mn) / (mx - mn)
         # add knots if not passed
         self._generate_knots(sample_pts, perc_low=0.0, perc_high=1.0, is_cyclic=False)
 
