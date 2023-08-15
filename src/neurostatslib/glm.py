@@ -564,14 +564,13 @@ class GLM(Estimator):
         self.check_n_neurons(spike_data, bs)
         return -(self._score(X, spike_data, (Ws, bs)) + jax.scipy.special.gammaln(spike_data + 1).mean())
 
-
     def simulate(
             self,
             random_key: jax.random.PRNGKeyArray,
             n_timesteps: int,
             init_spikes: NDArray,
             coupling_basis_matrix: NDArray,
-            X_input: NDArray
+            feedforward_input: NDArray
     ) -> jnp.ndarray:
         """Simulate spikes using GLM as a recurrent network, for extrapolating into the future.
 
@@ -588,7 +587,7 @@ class GLM(Estimator):
             as the bases functions (i.e., ``self.spike_basis_matrix.shape[1]``), shape (window_size,n_neurons)
         coupling_basis_matrix:
             Coupling and auto-correlation filter basis matrix. Shape (n_neurons, n_basis_coupling)
-        X_input:
+        feedforward_input:
             Part of the exogenous matrix that captures the external inputs (currents convolved with a basis,
             images convolved with basis, position time series evaluated in a basis).
             Shape (n_timesteps, n_basis_input).
@@ -626,11 +625,11 @@ class GLM(Estimator):
         bs = self.baseline_log_fr_
         self.check_n_neurons(init_spikes, bs)
 
-        if X_input.shape[2] + coupling_basis_matrix.shape[1] * bs.shape[0] != Ws.shape[1]:
+        if feedforward_input.shape[2] + coupling_basis_matrix.shape[1] * bs.shape[0] != Ws.shape[1]:
             raise ValueError("The number of feed forward input features"
                              "and the number of recurrent features must add up to"
                              "the overall model features."
-                             f"The total number of feature of the model is {Ws.shape[1]}. {X_input.shape[1]} "
+                             f"The total number of feature of the model is {Ws.shape[1]}. {feedforward_input.shape[1]} "
                              f"feedforward features and {coupling_basis_matrix.shape[1]} recurrent features "
                              f"provided instead.")
 
@@ -643,21 +642,21 @@ class GLM(Estimator):
 
         subkeys = jax.random.split(random_key, num=n_timesteps)
 
-        def scan_fn(data, key):
+        def scan_fn(data: Tuple[NDArray, int], key: jax.random.PRNGKeyArray) -> Tuple[Tuple[NDArray, int], NDArray]:
             spikes, chunk = data
-            conv_spk = jnp.transpose(
-                convolve_1d_trials(self.coupling_basis_matrix.T, spikes.T[None, :, :])[0],
-                (1, 2, 0),
+            conv_spk = convolve_1d_trials(coupling_basis_matrix, spikes[None, :, :])[0]
+
+            input_slice = jax.lax.dynamic_slice(
+                feedforward_input,
+                (chunk, 0, 0),
+                (1, feedforward_input.shape[1], feedforward_input.shape[2])
             )
-            slice = jax.lax.dynamic_slice(
-                X_input, (chunk, 0, 0), (1, X_input.shape[1], X_input.shape[2])
-            )
-            X = jnp.concatenate([conv_spk] * spikes.shape[1] + [slice], axis=2)
+            X = jnp.concatenate([conv_spk] * spikes.shape[1] + [input_slice], axis=2)
             firing_rate = self._predict((Ws, bs), X)
+            # key = jnp.squeeze(jax.lax.dynamic_slice(random_key, (chunk, 0), (1, random_key.shape[1])))
             new_spikes = jax.random.poisson(key, firing_rate)
             # this remains always of the same shape
             concat_spikes = jnp.row_stack((spikes[1:], new_spikes)), chunk + 1
-
             return concat_spikes, new_spikes
 
         _, simulated_spikes = jax.lax.scan(scan_fn, (init_spikes, 0), subkeys)
