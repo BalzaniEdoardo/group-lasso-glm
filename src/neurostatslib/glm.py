@@ -651,7 +651,9 @@ class GLM(Estimator):
                 (chunk, 0, 0),
                 (1, feedforward_input.shape[1], feedforward_input.shape[2])
             )
-            X = jnp.concatenate([conv_spk] * spikes.shape[1] + [input_slice], axis=2)
+            conv_spk = jnp.tile(conv_spk.reshape(conv_spk.shape[0], -1),
+                                conv_spk.shape[1]).reshape(conv_spk.shape[0], conv_spk.shape[1], -1)
+            X = jnp.concatenate([conv_spk, input_slice], axis=2)
             firing_rate = self._predict((Ws, bs), X)
             # key = jnp.squeeze(jax.lax.dynamic_slice(random_key, (chunk, 0), (1, random_key.shape[1])))
             new_spikes = jax.random.poisson(key, firing_rate)
@@ -659,6 +661,7 @@ class GLM(Estimator):
             concat_spikes = jnp.row_stack((spikes[1:], new_spikes)), chunk + 1
             return concat_spikes, (new_spikes, firing_rate)
 
+        #with jax.disable_jit():
         _, outputs = jax.lax.scan(scan_fn, (init_spikes, 0), subkeys)
         simulated_spikes, firing_rates = outputs
         return jnp.squeeze(simulated_spikes, axis=1), jnp.squeeze(firing_rates, axis=1)
