@@ -18,7 +18,7 @@ from .utils import convolve_1d_trials
 
 
 def _norm2_masked(weight_neuron, mask):
-    """Group by group norm 2.
+    """Group-by-group norm 2.
 
     Parameters
     ----------
@@ -31,7 +31,7 @@ def _norm2_masked(weight_neuron, mask):
     Returns
     -------
     :
-    The norm of the weight vector corresponding to the feature in mask.
+        The norm of the weight vector corresponding to the feature in mask.
     """
     return jnp.sqrt(mask.sum()) * jnp.linalg.norm(weight_neuron * mask, 2)
 
@@ -40,25 +40,6 @@ def _norm2_masked(weight_neuron, mask):
 _vmap_norm2_masked_1 = jax.vmap(_norm2_masked, in_axes=(0, None), out_axes=0)
 _vmap_norm2_masked_2 = jax.vmap(_vmap_norm2_masked_1, in_axes=(None, 0), out_axes=1)
 
-
-def _multiply_masked(Ws: jnp.ndarray, factor: jnp.ndarray, mask: jnp.ndarray) -> jnp.ndarray:
-    """Proximal gradient for group lasso.
-
-    Parameters
-    ----------
-    Ws:
-        The model parameters. Shape (n_neurons, n_features)
-    factor:
-        The scaling factor of the group lasso proximal gradient. Shape (n_neurons, n_groups)
-    mask:
-        ND array of 0,1 as float32, feature mask. size (n_groups x n_features)
-
-    Returns
-    -------
-    :
-    The rescaled weights. Shape (n_neurons, n_features)
-    """
-    return Ws * jnp.einsum('ng, gf->nf', factor, mask)
 
 #@jax.jit
 def prox_group_lasso(
@@ -81,14 +62,14 @@ def prox_group_lasso(
         depending on the step-size).
     Returns
     -------
-
+        The rescaled weights.
     """
     weights, intercepts = params
     # returns a n_neurons x n_groups
     l2_norm = _vmap_norm2_masked_2(weights, mask)
     factor = 1 - l2reg * scaling / l2_norm
-    factor = jnp.where(factor >= 0, factor, 0)
-    return _multiply_masked(weights, factor, mask), intercepts
+    factor = jax.nn.relu(factor)
+    return weights * (factor @ mask), intercepts
 
 class Estimator(abc.ABC):
     def __init__(
