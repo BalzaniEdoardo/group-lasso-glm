@@ -26,7 +26,7 @@ def _norm2_masked(weight_neuron, mask):
         The feature vector for a neuron. Shape (n_features, ).
     mask:
         The mask vector for group. mask[i] = 1, if the i-th element of weight_neuron
-        belongs to feature i, 0 otherwise.
+        belongs to the group, 0 otherwise.
 
     Returns
     -------
@@ -36,7 +36,8 @@ def _norm2_masked(weight_neuron, mask):
     return jnp.sqrt(mask.sum()) * jnp.linalg.norm(weight_neuron * mask, 2)
 
 
-# vectorize the norm function above, [(n_neurons, n_features), (n_groups, n_features)] -> (n_neurons, n_groups)
+# vectorize the norm function above
+# [(n_neurons, n_features), (n_groups, n_features)] -> (n_neurons, n_groups)
 _vmap_norm2_masked_1 = jax.vmap(_norm2_masked, in_axes=(0, None), out_axes=0)
 _vmap_norm2_masked_2 = jax.vmap(_vmap_norm2_masked_1, in_axes=(None, 0), out_axes=1)
 
@@ -65,7 +66,7 @@ def prox_group_lasso(
         The rescaled weights.
     """
     weights, intercepts = params
-    # returns a n_neurons x n_groups
+    # returns a (n_neurons, n_groups) matrix of norm 2s.
     l2_norm = _vmap_norm2_masked_2(weights, mask)
     factor = 1 - l2reg * scaling / l2_norm
     factor = jax.nn.relu(factor)
