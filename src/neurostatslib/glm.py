@@ -571,7 +571,7 @@ class GLM(Estimator):
             init_spikes: NDArray,
             coupling_basis_matrix: NDArray,
             feedforward_input: NDArray
-    ) -> jnp.ndarray:
+    ) -> Tuple[jnp.ndarray, jnp.ndarray]:
         """Simulate spikes using GLM as a recurrent network, for extrapolating into the future.
 
         Parameters
@@ -657,11 +657,11 @@ class GLM(Estimator):
             new_spikes = jax.random.poisson(key, firing_rate)
             # this remains always of the same shape
             concat_spikes = jnp.row_stack((spikes[1:], new_spikes)), chunk + 1
-            return concat_spikes, new_spikes
+            return concat_spikes, (new_spikes, firing_rate)
 
-        _, simulated_spikes = jax.lax.scan(scan_fn, (init_spikes, 0), subkeys)
-
-        return jnp.squeeze(simulated_spikes, axis=1)
+        _, outputs = jax.lax.scan(scan_fn, (init_spikes, 0), subkeys)
+        simulated_spikes, firing_rates = outputs
+        return jnp.squeeze(simulated_spikes, axis=1), jnp.squeeze(firing_rates, axis=1)
 
 
 class GLMGroupLasso(GLM):
