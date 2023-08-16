@@ -5,7 +5,12 @@
 __pycache__/
 *.py[cod]
 *$py.class
+*.py?*
 
+[options.entry_points]
+console_scripts = [
+    "your_script_name = your_package.module:main_function"
+]
 # C extensions
 *.so
 

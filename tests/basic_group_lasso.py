@@ -35,3 +35,13 @@ model_jax = GLMGroupLasso(solver_kwargs={'tol':10**-8, 'maxiter':1000, 'jit':Tru
 
 init_params = 0.001*np.random.normal(size=(nn, nb*nn+nbi)), np.log(np.mean(spikes,axis=0))
 model_jax.fit(X, spikes, mask=mask, init_params=init_params)
+print('group lasso fit coeff', model_jax.spike_basis_coeff_)
+
+weights_skl = np.zeros((nn, nb*nn+nbi))
+for k in range(nn):
+    print(f"skl fit neu {k}")
+    model_skl = PoissonRegressor(alpha=1, fit_intercept=True)
+    model_skl.fit(X[:,k], spikes[:,k])
+    weights_skl[k] = model_skl.coef_
+
+print('L2 fit coeff', weights_skl)

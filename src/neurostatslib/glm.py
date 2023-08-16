@@ -33,7 +33,7 @@ def _norm2_masked(weight_neuron, mask):
     :
         The norm of the weight vector corresponding to the feature in mask.
     """
-    return jnp.sqrt(mask.sum()) * jnp.linalg.norm(weight_neuron * mask, 2)
+    return  jnp.linalg.norm(weight_neuron * mask, 2) * jnp.sqrt(mask.sum())
 
 
 # vectorize the norm function above
@@ -42,7 +42,6 @@ _vmap_norm2_masked_1 = jax.vmap(_norm2_masked, in_axes=(0, None), out_axes=0)
 _vmap_norm2_masked_2 = jax.vmap(_vmap_norm2_masked_1, in_axes=(None, 0), out_axes=1)
 
 
-#@jax.jit
 def prox_group_lasso(
         params: Tuple[jnp.ndarray, jnp.ndarray],
         l2reg: float,

@@ -1,10 +1,31 @@
 import numpy as np
+from numpy.typing import NDArray
 import neurostatslib as nsl
 import scipy.stats as sts
 import jax.numpy as jnp
 import jax
 
 def temporal_fitler(ws, inhib_a=1, excit_a=2, inhib_b=2, excit_b=2):
+    """Generate coupling filter as Gamma pdf difference.
+
+    Parameters
+    ----------
+    ws:
+        The window size of the filter.
+    inhib_a:
+        The `a` constant for the gamma pdf of the inhibitory part of the filer.
+    excit_a:
+        The `a` constant for the gamma pdf of the excitatory part of the filer.
+    inhib_b:
+        The `b` constant for the gamma pdf of the inhibitory part of the filer.
+    excit_b:
+        The `a` constant for the gamma pdf of the excitatory part of the filer.
+
+    Returns
+    -------
+    filter:
+        The coupling filter.
+    """
     x = np.linspace(0, 5, ws)
     gm_inhibition = sts.gamma(a=inhib_a, scale=1/inhib_b)
     gm_excitation = sts.gamma(a=excit_a, scale=1/excit_b)
@@ -41,7 +62,36 @@ def regress_filter(coupling_filter_bank, n_basis_funcs):
     return eval_basis, weights
 
 
-def simulate_spikes(coupling_filter_bank, duration_sim_sec, dt_sec, mean_fr_hz, n_basis_approx=15, device="cpu"):
+def simulate_spikes(coupling_filter_bank: NDArray,
+                    duration_sim_sec: float,
+                    dt_sec: float,
+                    mean_fr_hz: float,
+                    n_basis_approx: int = 15,
+                    device="cpu") -> NDArray:
+    """Simulate the population spiking activity.
+
+    Approximate the filter with a basis of Raised Cosine Log-spaced and
+    simulate spike trains with the `nsl.glm.GLM.simulate` method.
+
+    Parameters
+    ----------
+    coupling_filter_bank:
+        The bank of coupling filters. Shape (n_neurons, n_neurons, window_size).
+    duration_sim_sec:
+        The duration of the simulation in seconds.
+    dt_sec:
+        Sampling period in seconds.
+    mean_fr_hz:
+        Mean firing rate of the population. Defines the log-baseline rate for
+        the simulation.
+    n_basis_approx:
+        Number of basis used for approximating the coupling filter.
+
+    Returns
+    -------
+    :
+        The simulated spike counts of the population. Shape (duration_sim_sec//dt_sec, n_neurons)
+    """
     n_samples = int(duration_sim_sec / dt_sec)
     n_neurons, _, ws = coupling_filter_bank.shape
     # set initial spikes to 0s
@@ -57,7 +107,7 @@ def simulate_spikes(coupling_filter_bank, duration_sim_sec, dt_sec, mean_fr_hz, 
     model_glm = nsl.glm.GLM(inverse_link_function=jnp.exp)
     model_glm.spike_basis_coeff_ = weights
     model_glm.baseline_log_fr_ = intercepts
-    #random_key = jax.random.PRNGKey(123)
+    random_key = jax.random.PRNGKey(123)
     random_key = jnp.array([1202936483, 1298730982], dtype=jnp.uint32)
     spikes, rates = model_glm.simulate(random_key, n_samples, init_spikes, coupling_basis, X_input,
         device = device)

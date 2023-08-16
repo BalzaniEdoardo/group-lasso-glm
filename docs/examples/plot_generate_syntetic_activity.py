@@ -1,5 +1,9 @@
+"""
+# Generate fits.
+"""
+
 # %%
-# # Import dependencies and set parameters
+# ## Import dependencies and set parameters
 import numpy as np
 import neurostatslib as nsl
 import jax.numpy as jnp
@@ -9,6 +13,8 @@ from sklearn.model_selection import KFold
 from sklearn.linear_model import PoissonRegressor
 import matplotlib.pylab as plt
 
+import sys
+sys.path.append("../../analysis")
 from simulation_utils import temporal_fitler, regress_filter
 from plot_utils import plot_coupling_mask, plot_filters
 from simulation_utils import simulate_spikes, define_groups
@@ -45,7 +51,7 @@ for neu_i in range(n_neurons):
 
 
 # %%
-# Define and Plot Connectivity Map
+# ## Define and Plot Connectivity Map
 is_coupled = np.ones((n_neurons, n_neurons))
 coupling_indices = np.arange(n_neurons**2)
 # assume the auto-corr is always present
@@ -60,17 +66,17 @@ is_coupled[decoupled] = 0
 #is_coupled[np.diag_indices(n_neurons)] = 0.
 
 # %%|
-# Remove uncoupled using the mask
+# ### Remove uncoupled using the mask
 coupling_filter_bank = coupling_filter_bank * is_coupled[..., None]
 
 # %%
-# Plot the coupling matrix & filters
+# ### Plot the coupling matrix & filters
 fig,_ = plot_coupling_mask(is_coupled, colors=['k', 'white'])
-fig.savefig(f"../results/ground_truth_coupling.png")
+#fig.savefig(f"../results/ground_truth_coupling.png")
 fig, axs = plot_filters(coupling_filter_bank, dt_sec, label='ground truth')
 
 #%%
-# Simulate spikes
+# ## Simulate spikes
 
 spikes, rates = simulate_spikes(coupling_filter_bank, 
     sim_duration_sec + window_size * dt_sec, 
@@ -78,7 +84,7 @@ spikes, rates = simulate_spikes(coupling_filter_bank,
 print(f"mean firing rate hz: {spikes.mean(axis=0)/dt_sec}")
 
 # %%
-# Prepare GLM predictors
+# ## Prepare GLM predictors
 
 # define groups per neuron
 group_mask = define_groups(n_neurons, n_basis_funcs=n_basis_funcs)
@@ -94,7 +100,7 @@ convolved_spikes = nsl.utils.convolve_1d_trials(eval_basis, spikes[None,:-1])
 y, X = nsl.utils.combine_inputs(spikes[window_size:], convolved_spikes, reps=n_neurons)
 
 # %%
-# Fit a GLM with group-Lasso
+# ## Fit a GLM with group-Lasso & plot predictions
 if len(jax.devices('gpu')):
     target_device = jax.devices('gpu')[0]
     y = jax.device_put(y, target_device)
@@ -117,16 +123,18 @@ filter_predicted = np.einsum("tj, nmj -> nmt", eval_basis, w_predicted)
 
 fig, axs = plot_filters(coupling_filter_bank, dt_sec, label='ground truth')
 plot_filters(filter_predicted, dt_sec, (fig, axs), color='tomato', ls='-', label='glm')
-fig.savefig(f"../results/group_lasso_filters_{int(mean_firing_rate_Hz)}Hz.png")
+#fig.savefig(f"../results/group_lasso_filters_{int(mean_firing_rate_Hz)}Hz.png")
 print(f"best regularizer: {cls.best_params_}")
 
+# %%
+# ## Compute fiter strength
 predicted_coupling_strength = np.linalg.norm(filter_predicted, axis=2)
 true_coupling_strength = np.linalg.norm(coupling_filter_bank, axis=2)
 
 
 
 # %%
-# sklearn fit
+# ## sklearn fit
 w_pred_skl = np.zeros((n_neurons, n_neurons, n_basis_funcs))
 for neu in range(n_neurons):
     print("analyzing neu", neu)
@@ -141,21 +149,14 @@ for neu in range(n_neurons):
 filter_pred_skl = np.einsum("tj, nmj -> nmt", eval_basis, w_pred_skl)
 fig, axs = plot_filters(coupling_filter_bank, dt_sec, label='ground truth')
 plot_filters(filter_pred_skl, dt_sec, (fig, axs), color='green', ls='-',label='glm-ridge')
-fig.savefig(f"../results/slkearn_ridge_filters_{int(mean_firing_rate_Hz)}Hz.png")
+#fig.savefig(f"../results/slkearn_ridge_filters_{int(mean_firing_rate_Hz)}Hz.png")
 
 plt.legend()
 
 skl_coupling_strength = np.linalg.norm(filter_pred_skl, axis=2)
 
 # %%
-# Plot and compare filt strength 
+# ## Plot and compare filt strength 
 fig,_ = plot_coupling_mask(true_coupling_strength,predicted_coupling_strength,skl_coupling_strength,title=['Ground truth',"Group-Lasso","Ridge"], cmap="Greys_r")
-fig.savefig(f"../results/compare_filter_strength_{int(mean_firing_rate_Hz)}Hz.png",)
-
-# plt.figure()
-# plt.plot(y[:300, 0]/10)
-# intercepts = np.log(dt_sec * 5) * np.ones(n_neurons)
-# plt.plot(np.exp(np.dot(X[:300,0], w_true[0,0])+intercepts))
-
-# %%
+#fig.savefig(f"../results/compare_filter_strength_{int(mean_firing_rate_Hz)}Hz.png",)
 
