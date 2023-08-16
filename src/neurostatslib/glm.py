@@ -379,7 +379,7 @@ class GLM(Estimator):
         """
         Ws, bs = params
         return self.inverse_link_function(
-            jnp.matmul(X, Ws.T) + bs[None, :]
+            jnp.einsum("ik,tik->ti", Ws, X) + bs[None, :]
         )
 
     def _score(
