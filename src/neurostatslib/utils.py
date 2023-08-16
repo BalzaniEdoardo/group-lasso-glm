@@ -386,8 +386,26 @@ def row_wise_kron(A: jnp.array, C: jnp.array, jit=False, transpose=True) -> jnp.
 
 def combine_inputs(exog:NDArray, *x_input:NDArray, strip_left: int=0,
                    strip_right: int=0, reps:int=1):
+    """
+
+    Parameters
+    ----------
+    exog:
+        Shape (n_trials, n_time_points, n_neurons)
+    x_input:
+        Shape (n_trials, n_time_points, n_features)
+    strip_left:
+        (n_trials, n_time_points, n_neurons)
+    strip_right
+    reps
+
+    Returns
+    -------
+
+    """
     exog = jnp.asarray(exog, dtype=jnp.float32)
-    exog = exog[strip_left: exog.shape[0] - strip_right]
+    exog = exog[:, strip_left: exog.shape[0] - strip_right]
+    exog = exog.reshape(-1, exog.shape[-1])
     first = True
     for x in x_input:
 
