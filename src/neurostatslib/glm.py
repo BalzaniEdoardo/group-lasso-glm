@@ -379,7 +379,7 @@ class GLM(Estimator):
         """
         Ws, bs = params
         return self.inverse_link_function(
-            jnp.einsum("ik,tik->ti", Ws, X) + bs[None, :]
+            jnp.matmul(X, Ws.T) + bs[None, :]
         )
 
     def _score(
@@ -570,7 +570,8 @@ class GLM(Estimator):
             n_timesteps: int,
             init_spikes: NDArray,
             coupling_basis_matrix: NDArray,
-            feedforward_input: NDArray
+            feedforward_input: NDArray,
+            device: str = 'cpu'
     ) -> Tuple[jnp.ndarray, jnp.ndarray]:
         """Simulate spikes using GLM as a recurrent network, for extrapolating into the future.
 
@@ -584,13 +585,13 @@ class GLM(Estimator):
             Spike counts arranged in a matrix. These are used to jump start the
             forward simulation. ``n_neurons`` must be the same as during the
             fitting of this GLM instance and ``window_size`` must be the same
-            as the bases functions (i.e., ``self.spike_basis_matrix.shape[1]``), shape (window_size,n_neurons)
+            as the bases functions (i.e., ``self.spike_basis_matrix.shape[1]``), shape (window_size, n_neurons)
         coupling_basis_matrix:
-            Coupling and auto-correlation filter basis matrix. Shape (n_neurons, n_basis_coupling)
+            Coupling and auto-correlation filter basis matrix. Shape (window_size, n_basis_coupling)
         feedforward_input:
             Part of the exogenous matrix that captures the external inputs (currents convolved with a basis,
             images convolved with basis, position time series evaluated in a basis).
-            Shape (n_timesteps, n_basis_input).
+            Shape (n_timesteps, n_neurons, n_basis_input).
 
         Returns
         -------
@@ -618,7 +619,18 @@ class GLM(Estimator):
             n_basis_input + n_basis_coupling = self.spike_basis_coeff_.shape[1]
 
         """
-        from jax.experimental import host_callback
+        if device == 'cpu':
+            target_device = jax.devices('cpu')[0]
+        elif device == 'gpu':
+            target_device = jax.devices('gpu')[0]
+        else:
+            raise ValueError(f"Invalid device: {device}. Choose 'cpu' or 'gpu'.")
+
+        # Transfer data to the target device
+        init_spikes = jax.device_put(init_spikes, target_device)
+        coupling_basis_matrix = jax.device_put(coupling_basis_matrix, target_device)
+        feedforward_input = jax.device_put(feedforward_input, target_device)
+
         self.check_is_fit()
 
         Ws = self.spike_basis_coeff_
