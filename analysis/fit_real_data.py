@@ -91,7 +91,7 @@ std_pr2_test = np.zeros((n_neurons, regularizer_grid.shape[0]))
 for neu in range(n_neurons):
     print(f"analyzing neuron {neu+1}/{n_neurons}")
     y, X = nsl.utils.combine_inputs(spikes[..., neu: neu+1], jnp.asarray(convolved_spikes), model_ori,
-                                  model_freq,strip_left=window_size, reps=1)
+                                  model_freq, strip_left=window_size, reps=1)
 
     # fit model
     group_mask = define_groups(n_neurons + n_freq + n_ori, n_basis_funcs=n_basis_funcs)
@@ -116,7 +116,7 @@ for neu in range(n_neurons):
     intercepts[neu] = model.baseline_log_fr_[0]
     mean_pr2_test[neu] = cls.cv_results_['mean_test_score']
     std_pr2_test[neu] = cls.cv_results_['std_test_score']
-    
+
 
 # # save fit results and config
 fhname = f"../results/FitAllNeurons_DT_{int(1000*dt_sec)}ms_NBasis_{n_basis_funcs}_WindowSize_{window_size}.npz"
