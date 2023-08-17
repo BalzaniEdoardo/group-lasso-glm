@@ -32,8 +32,14 @@ def _norm2_masked(weight_neuron, mask):
     -------
     :
         The norm of the weight vector corresponding to the feature in mask.
+    Notes
+    -----
+        The proximal gradient operator is described in article [1], Proposition 1.
+
+        .. [1] Yuan, Ming, and Yi Lin. "Model selection and estimation in regression with grouped variables."
+            Journal of the Royal Statistical Society Series B: Statistical Methodology 68.1 (2006): 49-67.
     """
-    return  jnp.linalg.norm(weight_neuron * mask, 2) * jnp.sqrt(mask.sum())
+    return jnp.linalg.norm(weight_neuron * mask, 2) / jnp.sqrt(mask.sum())
 
 
 # vectorize the norm function above
