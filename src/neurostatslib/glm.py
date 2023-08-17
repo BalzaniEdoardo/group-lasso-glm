@@ -5,7 +5,7 @@ import abc
 
 import inspect
 import warnings
-from typing import Callable, Optional, Tuple, Union
+from typing import Callable, Optional, Tuple, Literal
 
 import jax
 import jax.numpy as jnp
@@ -264,20 +264,24 @@ class GLM(Estimator):
     alpha:
         Regularizer strength, default = 0.
     """
-
+    FLOAT_EPS = jnp.finfo(jnp.float32).eps
     def __init__(
             self,
             solver_name: str = "GradientDescent",
             solver_kwargs: dict = dict(),
             inverse_link_function: Callable[[jnp.ndarray], jnp.ndarray] = jax.nn.softplus,
-            alpha: float = 0.
+            alpha: float = 0.,
+            score_type: Literal["log-likelihood", "pseudo-r2"] = "log-likelihood"
         ):
         super().__init__(
             solver_name=solver_name,
             solver_kwargs=solver_kwargs,
             inverse_link_function=inverse_link_function
         )
+        if score_type not in ['log-likelihood', 'pseudo-r2']:
+            raise ValueError("score_type must be either 'log-likelihood', 'pseudo-r2'.")
         self.alpha = alpha
+        self._score_type = score_type
 
     def fit(
             self,
@@ -437,6 +441,50 @@ class GLM(Estimator):
             predicted_firing_rates - x
         )
 
+    def _residual_deviance(self, predicted_rate, y):
+        """Compute the residual deviance for a Poisson model.
+
+        Parameters
+        ----------
+        X:
+            The predictors. Shape (n_time_bins, n_neurons, n_features).
+        y:
+            The spike counts. Shape (n_time_bins, n_neurons).
+
+        Returns
+        -------
+            The residual deviance of the model.
+        """
+        # this takes care of 0s in the log
+        ratio = jnp.clip(y / predicted_rate, self.FLOAT_EPS, np.inf)
+        resid_dev = y * jnp.log(ratio) - (y - predicted_rate)
+        return resid_dev
+
+    def _pseudo_r2(self, X, y):
+        """Pseudo-R2 calculation
+
+        Parameters
+        ----------
+        X:
+            The predictors. Shape (n_time_bins, n_neurons, n_features).
+        y:
+            The spike counts. Shape (n_time_bins, n_neurons).
+
+        Returns
+        -------
+        :
+            The pseudo-r2 of the model.
+        """
+        mu = self.predict(X)
+        res_dev_t = self._residual_deviance(mu, y)
+        resid_deviance = jnp.sum(res_dev_t ** 2)
+
+        null_mu = jnp.ones(y.shape) * y.sum() / y.size
+        null_dev_t = self._residual_deviance(null_mu, y)
+        null_deviance = jnp.sum(null_dev_t ** 2)
+
+        return (null_deviance - resid_deviance) / null_deviance
+
     def check_params(self, params, spike_data):
         if params[0].ndim != 2:
             raise ValueError(
@@ -561,7 +609,14 @@ class GLM(Estimator):
         Ws = self.spike_basis_coeff_
         bs = self.baseline_log_fr_
         self.check_n_neurons(spike_data, bs)
-        return -(self._score(X, spike_data, (Ws, bs)) + jax.scipy.special.gammaln(spike_data + 1).mean())
+        if self._score_type == "log-likelihood":
+            score = -(self._score(X, spike_data, (Ws, bs)) + jax.scipy.special.gammaln(spike_data + 1).mean())
+        elif self._score_type == "pseudo-r2":
+            score = self._pseudo_r2(X, spike_data)
+        else:
+            # this should happen only if one manually set score_type
+            raise NotImplementedError(f"Scorint method {self._score_type} not implemented!")
+        return score
 
     def simulate(
             self,
@@ -682,13 +737,15 @@ class GLMGroupLasso(GLM):
     def __init__(self,
                  solver_kwargs: dict = dict(),
                  inverse_link_function: Callable[[jnp.ndarray], jnp.ndarray] = jax.nn.softplus,
-                 alpha: float = 0.
+                 alpha: float = 0.,
+                 score_type: Literal["log-likelihood", "pseudo-r2"] = "log-likelihood"
                  ):
         super().__init__(
                          "ProximalGradient",
                          solver_kwargs=solver_kwargs,
                          inverse_link_function=inverse_link_function,
-                         alpha=alpha
+                         alpha=alpha,
+                         score_type=score_type
                         )
 
     def fit(self,

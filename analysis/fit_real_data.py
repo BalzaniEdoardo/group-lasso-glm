@@ -14,10 +14,10 @@ from plot_utils import plot_coupling_mask, plot_filters
 
 # %%
 # Parameters
-dt_sec = 0.01
-window_size = 20
+dt_sec = 0.005
+window_size = 30
 min_rate_hz = 1
-n_basis_funcs = 4
+n_basis_funcs = 5
 basis_class_coupling = nsl.basis.RaisedCosineBasisLog
 basis_class_psth = nsl.basis.RaisedCosineBasisLinear
 

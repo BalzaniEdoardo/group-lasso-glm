@@ -120,3 +120,65 @@ def define_groups(n_neurons, n_basis_funcs):
         grouping[neu, neu * n_basis_funcs: (neu + 1) * n_basis_funcs] = 1
     grouping = jnp.asarray(grouping, dtype=jnp.float32)
     return grouping
+
+
+def poisson_resid_dev(endog, mu):
+    r"""
+    Poisson deviance residuals
+
+    Parameters
+    ----------
+    endog : ndarray
+        The endogenous response variable.
+    mu : ndarray
+        The inverse of the link function at the linear predicted values.
+
+    Returns
+    -------
+    resid_dev : float
+        Deviance residuals as defined below.
+
+    Notes
+    -----
+    .. math::
+
+       resid\_dev_i = 2 * (endog_i * \ln(endog_i / \mu_i) -
+       (endog_i - \mu_i))
+    """
+    FLOAT_EPS = np.finfo(float).eps
+    endog_mu = np.clip(endog / mu, FLOAT_EPS, np.inf)
+    resid_dev = endog * np.log(endog_mu) - (endog - mu)
+    return 2 * resid_dev
+def global_pseudo_r2_comp(spk, exog, fit, use_tp=None):
+    if use_tp is not None:
+        exog = exog[use_tp]
+        spk = spk[use_tp]
+
+    mu = fit.predict(exog)
+    res_dev_t = poisson_resid_dev(spk, mu)
+    resid_deviance = np.sum(res_dev_t ** 2)
+
+    null_mu = np.ones(spk.shape) * spk.sum() / np.prod(spk.shape)
+    null_dev_t = poisson_resid_dev(spk, null_mu)
+
+    null_deviance = np.sum(null_dev_t ** 2)
+
+    pseudo_r2 = (null_deviance - resid_deviance) / null_deviance
+    return pseudo_r2
+
+def neuron_pseudo_r2_comp(spk, exog, fit, use_tp=None):
+    if use_tp is not None:
+        exog = exog[use_tp]
+        spk = spk[use_tp]
+    # (n_time_points, n_neurons)
+    mu = fit.predict(exog)
+    res_dev_t = poisson_resid_dev(spk, mu)
+    resid_deviance = np.sum(res_dev_t ** 2, axis=0)
+
+    null_mu = np.ones(spk.shape) * spk.sum(axis=0) / spk.shape[0]
+    null_dev_t = poisson_resid_dev(spk, null_mu)
+
+    null_deviance = np.sum(null_dev_t ** 2, axis=0)
+
+    pseudo_r2 = (null_deviance - resid_deviance) / null_deviance
+    return pseudo_r2
