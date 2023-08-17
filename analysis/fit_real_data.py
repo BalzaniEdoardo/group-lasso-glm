@@ -12,6 +12,9 @@ import neurostatslib as nsl
 from simulation_utils import define_groups
 from plot_utils import plot_coupling_mask, plot_filters
 
+from scipy.cluster.hierarchy import linkage, leaves_list
+
+
 # %%
 # Parameters
 dt_sec = 0.01
@@ -88,16 +91,18 @@ if len(jax.devices('gpu')):
     group_mask = jax.device_put(group_mask, target_device)
 model = nsl.glm.GLMGroupLasso(
             solver_kwargs={'tol': 10**-8, 'maxiter': 1000, 'jit':True},
-            inverse_link_function=jnp.exp,alpha=0.001
+            inverse_link_function=jnp.exp,alpha=0.05
 )
 model.fit(X,y)
-
-
 
 weights_coupling = model.spike_basis_coeff_[:,:n_basis_funcs*n_neurons].reshape(n_neurons, n_neurons, -1)
 filter_predicted = np.einsum("tj, nmj -> nmt", eval_basis_coupling, weights_coupling)
 predicted_coupling_strength = np.linalg.norm(filter_predicted, axis=2)
-fig,_ = plot_coupling_mask(predicted_coupling_strength, title=["Group-Lasso"], cmap="Greys_r")
+
+link = linkage(predicted_coupling_strength, method='average')
+order = leaves_list(link)
+
+fig,_ = plot_coupling_mask(predicted_coupling_strength[order][:,order], title=["Group-Lasso"], cmap="Greys_r", plot_grid=False)
 
 # %%
 # Select regularizer using k-fold
@@ -107,3 +112,5 @@ fig,_ = plot_coupling_mask(predicted_coupling_strength, title=["Group-Lasso"], c
 # cls = GridSearchCV(model, param_grid={'alpha': np.logspace(-5, -1, 6)}, cv=kf, verbose=True)
 # cls.fit(X, y, mask = group_mask)
 
+
+# %%
