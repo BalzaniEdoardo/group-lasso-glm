@@ -22,7 +22,7 @@ window_size = 100
 n_neurons = 4
 sparsity_mask = 0.75
 sim_duration_sec = 3600
-mean_firing_rate_Hz = 2
+mean_firing_rate_Hz = 4
 n_basis_funcs = 10
 
 # filter parameters (gamma.pdf(a_excit, b_excit) - gamma.pdf(a_inhib, b_inhib)

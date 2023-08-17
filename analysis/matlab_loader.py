@@ -3,7 +3,7 @@ import scipy.io as sio
 from numpy.typing import NDArray
 from typing import Tuple
 
-data_path = "/Users/ebalzani/Code/group_lasso_grant/group-lasso-glm/data/m691l1#4_second_64_workspace.mat"
+data_path = "../data/m691l1#4_second_64_workspace.mat"
 
 
 def get_rate(spike_times, mn, mx):

@@ -1,3 +1,5 @@
+# %%
+# import libs
 import jax
 import jax.numpy as jnp
 import matplotlib.pylab as plt
@@ -12,10 +14,10 @@ from plot_utils import plot_coupling_mask, plot_filters
 
 # %%
 # Parameters
-dt_sec = 0.005
-window_size = 30
+dt_sec = 0.01
+window_size = 20
 min_rate_hz = 1
-n_basis_funcs = 5
+n_basis_funcs = 4
 basis_class_coupling = nsl.basis.RaisedCosineBasisLog
 basis_class_psth = nsl.basis.RaisedCosineBasisLinear
 
@@ -70,17 +72,27 @@ model_freq = np.einsum("tk,tj->tkj", frequency_mask, psth_basis).reshape(n_trial
 # convolve spikes
 convolved_spikes = nsl.utils.convolve_1d_trials(eval_basis_coupling, spikes)
 convolved_spikes = nsl.utils.nan_pad_conv(convolved_spikes, window_size, filter_type="causal")
-y, X = nsl.utils.combine_inputs(spikes, jnp.asarray(convolved_spikes), model_ori,
-                               model_freq,strip_left=window_size, reps=spikes.shape[2])
 
+del frequency_mask, orientation_mask, orientation_stack, frequency_stack
+y, X = nsl.utils.combine_inputs(spikes, jnp.asarray(convolved_spikes), model_ori,
+                              model_freq,strip_left=window_size, reps=spikes.shape[2])
+
+# %%
 # fit model
+group_mask = define_groups(n_neurons + n_freq + n_ori, n_basis_funcs=n_basis_funcs)
+# Fit a GLM with group-Lasso
+if len(jax.devices('gpu')):
+    target_device = jax.devices('gpu')[0]
+    y = jax.device_put(y, target_device)
+    X = jax.device_put(X, target_device)
+    group_mask = jax.device_put(group_mask, target_device)
 model = nsl.glm.GLMGroupLasso(
             solver_kwargs={'tol': 10**-8, 'maxiter': 1000, 'jit':True},
             inverse_link_function=jnp.exp,alpha=0.001
 )
 model.fit(X,y)
 
-group_mask = define_groups(n_neurons + n_freq + n_ori, n_basis_funcs=n_basis_funcs)
+
 
 weights_coupling = model.spike_basis_coeff_[:,:n_basis_funcs*n_neurons].reshape(n_neurons, n_neurons, -1)
 filter_predicted = np.einsum("tj, nmj -> nmt", eval_basis_coupling, weights_coupling)

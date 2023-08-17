@@ -12,7 +12,8 @@ def bicolor_cmap(bounds=[0,0.5,1], colors=['white', 'k']):
 
 
 def plot_coupling_mask(*is_coupled_all, colors=['white', 'k'],
-                       cmap=None, title=["Coupling Map"], set_labels=False):
+                       cmap=None, title=["Coupling Map"], set_labels=False,
+                       plot_grid=True):
     num_comp = len(is_coupled_all)
     fig, axs = plt.subplots(1, num_comp)
     if num_comp == 1:
@@ -39,8 +40,8 @@ def plot_coupling_mask(*is_coupled_all, colors=['white', 'k'],
         ax.set_xlabel("receiver neuron")
         ax.set_ylabel("sender neuron")
 
-        # Here's the key line:
-        ax.grid(which='minor', color='r', linestyle='-', linewidth=2)
+        if plot_grid:
+            ax.grid(which='minor', color='r', linestyle='-', linewidth=2)
 
         # Adjusting the colorbar height to match the main plot
         divider = make_axes_locatable(ax)
