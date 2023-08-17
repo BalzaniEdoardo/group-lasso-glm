@@ -102,7 +102,7 @@ class Estimator(abc.ABC):
 
     def get_params(self, deep=True):
         """
-        from scikit-learn, get parameters by inpecting init
+        from scikit-learn, get parameters by inspecting init
         Parameters
         ----------
         deep
@@ -287,7 +287,7 @@ class GLM(Estimator):
         if score_type not in ['log-likelihood', 'pseudo-r2']:
             raise ValueError("score_type must be either 'log-likelihood', 'pseudo-r2'.")
         self.alpha = alpha
-        self._score_type = score_type
+        self.score_type = score_type
 
     def fit(
             self,
@@ -615,13 +615,13 @@ class GLM(Estimator):
         Ws = self.spike_basis_coeff_
         bs = self.baseline_log_fr_
         self.check_n_neurons(spike_data, bs)
-        if self._score_type == "log-likelihood":
+        if self.score_type == "log-likelihood":
             score = -(self._score(X, spike_data, (Ws, bs)) + jax.scipy.special.gammaln(spike_data + 1).mean())
-        elif self._score_type == "pseudo-r2":
+        elif self.score_type == "pseudo-r2":
             score = self._pseudo_r2(X, spike_data)
         else:
             # this should happen only if one manually set score_type
-            raise NotImplementedError(f"Scorint method {self._score_type} not implemented!")
+            raise NotImplementedError(f"Scorint method {self.score_type} not implemented!")
         return score
 
     def simulate(
