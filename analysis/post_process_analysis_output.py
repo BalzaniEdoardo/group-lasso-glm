@@ -7,9 +7,17 @@ from sklearn.model_selection import GridSearchCV, KFold
 from plot_utils import plot_psth_by_category, plot_coupling_mask
 
 import neurostatslib as nsl
+post_process = "ridge"
 
+
+if post_process == "group-lasso":
+    fhpath = '../results/FitAllNeurons_DT_1ms_NBasis_5_WindowSize_250.npz'
+    save_prefix = 'group-lasso_'
+elif post_process == 'ridge':
+    fhpath = '../results/JAXRidgeFitAllNeurons_DT_1ms_NBasis_5_WindowSize_250.npz'
+    save_prefix = 'ridge_'
 # unpack fit output
-dat = np.load('../results/FitAllNeurons_DT_1ms_NBasis_5_WindowSize_250.npz', allow_pickle=True)
+dat = np.load(fhpath, allow_pickle=True)
 
 # %% ###################################################################################################################
 # # Pre-processing: bin input to counts

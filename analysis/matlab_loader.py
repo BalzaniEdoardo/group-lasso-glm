@@ -2,7 +2,7 @@ import numpy as np
 import scipy.io as sio
 from numpy.typing import NDArray
 from typing import Tuple
-import pynapple as nap
+#import pynapple as nap
 
 data_path = "../data/m691l1#4_second_64_workspace.mat"
 
@@ -60,58 +60,58 @@ def load_data(path:str, min_fr_th_hz=1.) -> Tuple[NDArray, NDArray, NDArray, NDA
     print(f"Range of spike times: [{mn[0]}s, {mx[0]}s]")
     return curated_units, spike_times, spatial_frequencies, orientations
 
-def load_data_pynapple(path:str, min_fr_th_hz=1.) -> Tuple[NDArray, NDArray, NDArray, NDArray]:
-    """Load experiment with gratings stimuli.
+# def load_data_pynapple(path:str, min_fr_th_hz=1.) -> Tuple[NDArray, NDArray, NDArray, NDArray]:
+#     """Load experiment with gratings stimuli.
 
-    Parameters
-    ----------
-    path:
-        The path to the .mat file
+#     Parameters
+#     ----------
+#     path:
+#         The path to the .mat file
 
-    Returns
-    -------
-        curated_units:
-            The ID of the unitsShape (n_units, ).
-        spike_times:
-            The spike times (starting from t0 at stimulus presentation). (n_units, n_trials)
-        spatial_frequencies:
-            The frequency for each stimulus, values: -1,1,2,3. Shape (n_units, ).
-        orientations:
-            The orientation for each stimulus in deg, values: -1, 10, 20, 30,..., 360. Shape (n_units, ).
-    """
-    dat = sio.loadmat(path)
-    # extract curated units and set to python indices
-    curated_units = dat["clus"].flatten() - 1
+#     Returns
+#     -------
+#         curated_units:
+#             The ID of the unitsShape (n_units, ).
+#         spike_times:
+#             The spike times (starting from t0 at stimulus presentation). (n_units, n_trials)
+#         spatial_frequencies:
+#             The frequency for each stimulus, values: -1,1,2,3. Shape (n_units, ).
+#         orientations:
+#             The orientation for each stimulus in deg, values: -1, 10, 20, 30,..., 360. Shape (n_units, ).
+#     """
+#     dat = sio.loadmat(path)
+#     # extract curated units and set to python indices
+#     curated_units = dat["clus"].flatten() - 1
 
-    # (n_units, n_trials) sec
-    spike_times = dat["ori_sf_struct"][0,0]['passSTs'][curated_units]
+#     # (n_units, n_trials) sec
+#     spike_times = dat["ori_sf_struct"][0,0]['passSTs'][curated_units]
 
-    # dic ts
-    time_init = dat["ori_sf_struct"][0, 0]["times"][0, 0].flatten()
-    ts_group = {unt: nap.Ts(np.hstack([spike_times[i, tr].flatten() + time_init[tr] for tr in range(spike_times.shape[1])])) for i,unt in enumerate(curated_units)}
-    spike_time_tsg = nap.TsGroup(ts_group)
+#     # dic ts
+#     time_init = dat["ori_sf_struct"][0, 0]["times"][0, 0].flatten()
+#     ts_group = {unt: nap.Ts(np.hstack([spike_times[i, tr].flatten() + time_init[tr] for tr in range(spike_times.shape[1])])) for i,unt in enumerate(curated_units)}
+#     spike_time_tsg = nap.TsGroup(ts_group)
 
-    start_time = nap.Ts(time_init)
-    epochs = nap.IntervalSet(start=time_init, end=time_init+0.5)
+#     start_time = nap.Ts(time_init)
+#     epochs = nap.IntervalSet(start=time_init, end=time_init+0.5)
 
-    # (n_trials, )
-    spatial_frequencies = dat["ori_sf_struct"][0,0]["events_sf"].flatten()
+#     # (n_trials, )
+#     spatial_frequencies = dat["ori_sf_struct"][0,0]["events_sf"].flatten()
 
-    # (n_trials, ) 0 = orizontal, 90 vertical...
-    orientations = dat["ori_sf_struct"][0,0]["events_ori"].flatten()
+#     # (n_trials, ) 0 = orizontal, 90 vertical...
+#     orientations = dat["ori_sf_struct"][0,0]["events_ori"].flatten()
 
-    mx = max([max(spike_times[i, j]) for i in range(spike_times.shape[0])
-               for j in range(spike_times.shape[1])
-               if len(spike_times[i, j]) != 0])
-    mn = min([min(spike_times[i, j]) for i in range(spike_times.shape[0])
-               for j in range(spike_times.shape[1])
-               if len(spike_times[i, j]) != 0])
-    select = get_rate(spike_times, mn, mx) > min_fr_th_hz
-    curated_units = curated_units[select]
-    spike_times = spike_times[select]
+#     mx = max([max(spike_times[i, j]) for i in range(spike_times.shape[0])
+#                for j in range(spike_times.shape[1])
+#                if len(spike_times[i, j]) != 0])
+#     mn = min([min(spike_times[i, j]) for i in range(spike_times.shape[0])
+#                for j in range(spike_times.shape[1])
+#                if len(spike_times[i, j]) != 0])
+#     select = get_rate(spike_times, mn, mx) > min_fr_th_hz
+#     curated_units = curated_units[select]
+#     spike_times = spike_times[select]
 
-    print(f"Range of spike times: [{mn[0]}s, {mx[0]}s]")
-    return curated_units, spike_times, spatial_frequencies, orientations
+#     print(f"Range of spike times: [{mn[0]}s, {mx[0]}s]")
+#     return curated_units, spike_times, spatial_frequencies, orientations
 
 def bin_spikes(spike_times: NDArray,
                dt_sec: float,
