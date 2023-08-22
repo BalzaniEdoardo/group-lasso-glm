@@ -7,7 +7,7 @@ from sklearn.model_selection import GridSearchCV, KFold
 from plot_utils import plot_psth_by_category, plot_coupling_mask
 
 import neurostatslib as nsl
-post_process = "ridge"
+post_process = "group-lasso"
 
 
 if post_process == "group-lasso":
@@ -98,6 +98,7 @@ regularizer_grid = dat["regularizer_grid"]
 
 # compute the predicted rate (one neuron at the time for memory issues)
 predicted_rate = np.zeros((n_trials*(n_time_points - window_size), 69))
+spikes_stack = np.zeros((n_trials*(n_time_points - window_size), 69))
 for neu in range(n_neurons):
     y, X = nsl.utils.combine_inputs(spikes[..., neu: neu + 1], jnp.asarray(convolved_spikes), model_ori,
                                     model_freq, strip_left=window_size, reps=1)
@@ -107,9 +108,12 @@ for neu in range(n_neurons):
     model.baseline_log_fr_ = intercepts[neu: neu + 1]
     model.spike_basis_coeff_ = coeffs[neu: neu + 1]
     predicted_rate[:, neu] = np.squeeze(model.predict(X)) / dt_sec
+    spikes_stack[:,neu] = y.flatten()
 
 predicted_rate = predicted_rate.reshape(n_trials, -1, n_neurons)
-
+spikes_stack = spikes_stack.reshape(n_trials, -1, n_neurons)
+np.savez("../results/" + save_prefix + "rates_" + "DT_1ms_NBasis_5_WindowSize_250.npz", 
+    predicted_rate=np.asarray(predicted_rate), spikes=spikes_stack)
 # %%
 # Plot fit statistics
 fig, axs = plt.subplots(1, 1)
