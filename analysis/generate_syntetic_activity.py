@@ -155,8 +155,8 @@ skl_coupling_strength = np.linalg.norm(filter_pred_skl, axis=2)
 # %%
 # Plot and compare filt strength 
 fig,_ = plot_coupling_mask(true_coupling_strength,predicted_coupling_strength,skl_coupling_strength,title=['Ground truth',"Group-Lasso","Ridge"], cmap="Greys_r",
-                           vmax=1.)
-#fig.savefig(f"../results/compare_filter_strength_{int(mean_firing_rate_Hz)}Hz.pdf")
+                           vmax=0.8, vmin=0.0)
+fig.savefig(f"../results/compare_filter_strength_{int(mean_firing_rate_Hz)}Hz.pdf")
 
 # plt.figure()
 # plt.plot(y[:300, 0]/10)
