@@ -13,7 +13,8 @@ def bicolor_cmap(bounds=[0,0.5,1], colors=['white', 'k']):
 
 def plot_coupling_mask(*is_coupled_all, colors=['white', 'k'],
                        cmap=None, title=["Coupling Map"], set_labels=False,
-                       plot_grid=True, plot_ticks_every=1, lw=2, sort=False, high_percentile=98):
+                       plot_grid=True, plot_ticks_every=1, lw=2,
+                       sort=False, high_percentile=98):
 
 
     num_comp = len(is_coupled_all)
@@ -25,7 +26,7 @@ def plot_coupling_mask(*is_coupled_all, colors=['white', 'k'],
         is_coupled = is_coupled_all[k]
         if k == 0:
             vmax = np.nanpercentile((is_coupled - 10**3 * np.eye(is_coupled.shape[0])).max(axis=0), high_percentile)
-
+        print("vmax:", vmax)
         if sort and k == 0:
             # Hierarchical clustering on rows
             link = linkage(is_coupled, method='average')
@@ -40,7 +41,7 @@ def plot_coupling_mask(*is_coupled_all, colors=['white', 'k'],
         else:
             cmap = plt.get_cmap(cmap)
 
-        cax = ax.imshow(is_coupled, cmap=cmap, vmin=min([cc.min() for cc in is_coupled_all]), vmax=vmax)
+        cax = ax.imshow(is_coupled, cmap=cmap, vmin=0, vmax=4.42)
 
         # Set the ticks themselves
         ax.set_xticks(np.arange(is_coupled.shape[1])[::plot_ticks_every])

@@ -5,8 +5,13 @@ import numpy as np
 from matlab_loader import bin_spikes, data_path, load_data
 from sklearn.model_selection import GridSearchCV, KFold
 from plot_utils import plot_psth_by_category, plot_coupling_mask
+import matplotlib
 
 import neurostatslib as nsl
+
+matplotlib.rcParams['pdf.fonttype'] = 42
+matplotlib.rcParams['ps.fonttype'] = 42
+
 post_process = "group-lasso"
 
 
@@ -97,40 +102,49 @@ mean_pr2_test = dat["mean_pr2_test"]
 regularizer_grid = dat["regularizer_grid"]
 
 # compute the predicted rate (one neuron at the time for memory issues)
-predicted_rate = np.zeros((n_trials*(n_time_points - window_size), 69))
-spikes_stack = np.zeros((n_trials*(n_time_points - window_size), 69))
-for neu in range(n_neurons):
-    y, X = nsl.utils.combine_inputs(spikes[..., neu: neu + 1], jnp.asarray(convolved_spikes), model_ori,
-                                    model_freq, strip_left=window_size, reps=1)
-    model = nsl.glm.GLMGroupLasso(
-        inverse_link_function=jnp.exp, score_type="pseudo-r2"
-    )
-    model.baseline_log_fr_ = intercepts[neu: neu + 1]
-    model.spike_basis_coeff_ = coeffs[neu: neu + 1]
-    predicted_rate[:, neu] = np.squeeze(model.predict(X)) / dt_sec
-    spikes_stack[:,neu] = y.flatten()
+# predicted_rate = np.zeros((n_trials*(n_time_points - window_size), 69))
+# spikes_stack = np.zeros((n_trials*(n_time_points - window_size), 69))
+# for neu in range(n_neurons):
+#     y, X = nsl.utils.combine_inputs(spikes[..., neu: neu + 1], jnp.asarray(convolved_spikes), model_ori,
+#                                     model_freq, strip_left=window_size, reps=1)
+#     model = nsl.glm.GLMGroupLasso(
+#         inverse_link_function=jnp.exp, score_type="pseudo-r2"
+#     )
+#     model.baseline_log_fr_ = intercepts[neu: neu + 1]
+#     model.spike_basis_coeff_ = coeffs[neu: neu + 1]
+#     predicted_rate[:, neu] = np.squeeze(model.predict(X)) / dt_sec
+#     spikes_stack[:,neu] = y.flatten()
+#
+# predicted_rate = predicted_rate.reshape(n_trials, -1, n_neurons)
+# spikes_stack = spikes_stack.reshape(n_trials, -1, n_neurons)
+# np.savez("../results/" + save_prefix + "rates_" + "DT_1ms_NBasis_5_WindowSize_250.npz",
+#     predicted_rate=np.asarray(predicted_rate), spikes=spikes_stack)
 
-predicted_rate = predicted_rate.reshape(n_trials, -1, n_neurons)
-spikes_stack = spikes_stack.reshape(n_trials, -1, n_neurons)
-np.savez("../results/" + save_prefix + "rates_" + "DT_1ms_NBasis_5_WindowSize_250.npz", 
-    predicted_rate=np.asarray(predicted_rate), spikes=spikes_stack)
+dat_ridge = np.load('../results/ridge_rates_DT_1ms_NBasis_5_WindowSize_250.npz')
+dat_group_lasso = np.load('../results/group-lasso_rates_DT_1ms_NBasis_5_WindowSize_250.npz')
+if post_process == 'ridge':
+    predicted_rate = dat_ridge['predicted_rate']
+    spikes_stack = dat_ridge['spikes']
+else:
+    predicted_rate = dat_group_lasso['predicted_rate']
+    spikes_stack = dat_group_lasso['spikes']
 # %%
 # Plot fit statistics
 fig, axs = plt.subplots(1, 1)
-plt.title("cross-validated pseudo-R2")
+plt.title(f"cross-validated pseudo-R2 {post_process}")
 plt.hist(np.nanmax(mean_pr2_test, axis=1),density=True, color="Grey",alpha=0.3,edgecolor='k')
 plt.xlabel('pseodo-$R^2$')
 plt.ylabel('pdf')
 axs.spines['top'].set_visible(False)
 axs.spines['right'].set_visible(False)
 plt.tight_layout()
-
+fig.savefig(f"../results/pseudo_r2_{post_process}.pdf")
 
 # Plot global psth
 rows = 7
 cols = 10
 fig = plt.figure(figsize=(12, 6))
-plt.suptitle("PSTH over all categories")
+plt.suptitle(f"PSTH over all categories {post_process}")
 for neu in range(69):
     ax = plt.subplot(rows, cols, neu + 1)
     ax.plot(time[window_size:], predicted_rate[:, :, neu].mean(axis=0))
@@ -142,12 +156,14 @@ for neu in range(69):
     if neu % cols == 0:
         plt.ylabel('rate[Hz]', fontsize=8)
 fig.tight_layout()
+fig.savefig(f"../results/PSTH_{post_process}.pdf")
 
 
 fig, axs = plot_psth_by_category(time[window_size:], predicted_rate, orientations,
                       rows=7, cols=10, plot_every=6, is_angle=True)
-plt.suptitle("PSTH by orientation")
+plt.suptitle(f"PSTH by orientation {post_process}")
 fig.tight_layout()
+fig.savefig(f"../results/PSTH_by_orientation_{post_process}.pdf")
 
 
 # analyze coupling filters
@@ -158,7 +174,7 @@ filters = np.einsum("ti,nmi->tnm", eval_basis_coupling, weights_coupling)
 rows = 7
 cols = 10
 fig = plt.figure(figsize=(12, 6))
-plt.suptitle("Auto-correlation filters")
+plt.suptitle(f"Auto-correlation filters {post_process}")
 for neu in range(69):
     ax = plt.subplot(rows, cols, neu + 1)
     ax.plot(time[:window_size], filters[:, neu, neu])
@@ -171,7 +187,14 @@ fig.tight_layout()
 
 
 # plot coupling strength
+
+sort = False
+if not sort:
+    lab = "unsorted_"
+else:
+    lab = ""
 coupling_strength = np.linalg.norm(filters, axis=0)
-plot_coupling_mask(coupling_strength, colors=['white', 'k'],
-                       cmap="Greys_r", title=["Coupling Map"], set_labels=False,
-                       plot_grid=True, plot_ticks_every=5,lw=0., sort=True, high_percentile=90)
+fig, _ = plot_coupling_mask(coupling_strength, colors=['white', 'k'],
+                       cmap="Greys_r", title=[f"Coupling Map {post_process}"], set_labels=False,
+                       plot_grid=True, plot_ticks_every=5,lw=0., sort=sort, high_percentile=95)
+fig.savefig(f"../results/{lab}functional_connectivity_{post_process}.pdf")
